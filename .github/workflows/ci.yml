@@ -19,5 +19,7 @@ jobs:
           python -m pip install -e ".[dev]"
       - name: Compile
         run: python -m compileall -q src tests
+      - name: Owner direction guard
+        run: python tools/check_owner_direction.py
       - name: Tests
         run: python -m pytest -q
