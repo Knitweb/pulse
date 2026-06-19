@@ -1,0 +1,153 @@
+"""Tests for the interpretation lobe (retrieve/distill)."""
+
+import random
+
+import pytest
+
+from knitweb.core import crypto
+from knitweb.fabric.items import web_state_root
+from knitweb.fabric.web import Web
+from knitweb.interpret import Candidate, CandidateSet, distill, retrieve
+
+
+def _seeded_web(seed: int = 0) -> Web:
+    rng = random.Random(seed)
+    web = Web()
+    cids = []
+
+    # Keep scopes explicit so subscription filtering is testable.
+    for i in range(8):
+        cids.append(
+            web.weave(
+                {
+                    "kind": "knowledge",
+                    "title": f"item-{i}",
+                    "body": f"body {i} with trace {rng.randint(0, 9999)}",
+                    "scope": "public" if rng.random() < 0.7 else "secret",
+                    "author": crypto.address(f"{rng.getrandbits(256):064x}"),
+                }
+            )
+        )
+
+    # Dense random links produce predictable deterministic neighbors.
+    rel = ["supports", "observed-in", "depends-on"]
+    for src in cids:
+        for dst in rng.sample(cids, rng.randrange(0, 3)):
+            if src != dst:
+                web.link(src, dst, rel[rng.randrange(len(rel))], weight=1)
+    return web
+
+
+@pytest.mark.property
+def test_retrieve_is_deterministic_for_the_same_inputs():
+    web = _seeded_web(1)
+    seed_node = next(iter(web.nodes))
+    q = {"kind": "knowledge", "seed": seed_node}
+
+    first = retrieve(q, ["public"], web)
+    second = retrieve(q, ["public"], web)
+    assert first.cids == second.cids
+    assert first.web_state_cid == second.web_state_cid
+    assert first.source_ancestries == second.source_ancestries
+
+
+@pytest.mark.property
+def test_retrieve_deterministic_for_many_webs():
+    for seed in range(100):
+        web = _seeded_web(seed)
+        seed_node = next(iter(web.nodes))
+        q = {"kind": "knowledge", "seed": seed_node}
+        first = retrieve(q, ("public",), web)
+        second = retrieve(q, ("public",), web)
+        assert first.cids == second.cids
+
+
+@pytest.mark.property
+def test_subscription_filters_nodes_outside_scope():
+    web = Web()
+    public = web.weave(
+        {
+            "kind": "knowledge",
+            "title": "public",
+            "body": "open",
+            "scope": "public",
+            "author": "alice",
+        }
+    )
+    secret = web.weave(
+        {
+            "kind": "knowledge",
+            "title": "secret",
+            "body": "sealed",
+            "scope": "secret",
+            "author": "alice",
+        }
+    )
+    web.link(public, secret, "supports")
+
+    result = retrieve(
+        {"kind": "knowledge", "seed": public},
+        subscription=("public",),
+        web=web,
+    )
+    assert public in result.cids
+    assert secret not in result.cids
+
+
+@pytest.mark.property
+def test_distill_gates_non_attested_nodes_out_of_web():
+    web = Web()
+    known = web.weave(
+        {
+            "kind": "knowledge",
+            "title": "known",
+            "body": "safe",
+            "scope": "public",
+            "author": "alice",
+        }
+    )
+    bogus_cid = "ff" * 8
+    candidate_set = CandidateSet(
+        query="known",
+        subscription=("public",),
+        web_state_cid=web_state_root(web),
+        cids=(known, bogus_cid),
+        candidates=(Candidate(known, ()), Candidate(bogus_cid, ())),
+        source_ancestries=((), ()),
+    )
+
+    selection = distill(candidate_set, "known", web=web, max_iters=10)
+    assert len(selection.relations) == 1
+    # relation from unknown candidate must be dropped by the provenance gate
+    assert all(rel.subject == known for rel in selection.relations)
+
+
+@pytest.mark.property
+def test_distill_respects_iteration_cap_and_tracks_budget_flag():
+    web = Web()
+    cids = []
+    for idx in range(20):
+        cids.append(
+            web.weave(
+                {
+                    "kind": "knowledge",
+                    "title": f"item {idx}",
+                    "body": "same",
+                    "scope": "public",
+                    "author": "alice",
+                }
+            )
+        )
+    for src in cids:
+        web.link(src, cids[0], "supports")
+
+    selection = distill(
+        retrieve({"kind": "knowledge"}, ("public",), web, depth=0),
+        cids[0],
+        web=web,
+        max_iters=3,
+    )
+    assert selection.log.iterations == 3
+    assert selection.log.sub_calls == 3
+    assert selection.log.budget_exhausted is True
+    assert len(selection.relations) <= 3
