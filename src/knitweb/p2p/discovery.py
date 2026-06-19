@@ -45,6 +45,11 @@ PEER_EXCHANGE_KIND = "peer-exchange"
 # compute regardless of how large the Web becomes. ``None`` anywhere means "all".
 DEFAULT_SHARE_K = 32
 
+# The flat directory is bounded: it is only the dedup/membership layer (eclipse-resistant
+# *selection* is the bucketed AddrBook, #63/#73), so an unbounded peer flood must not grow
+# it without limit. When full, learning a new peer evicts the oldest non-static entry.
+DEFAULT_MAX_DIRECTORY = 4096
+
 
 def _key(peer: PeerAddress) -> str:
     # Carrier-aware key. A relay:// peer routes by its ``params`` mailbox (its
@@ -56,15 +61,42 @@ def _key(peer: PeerAddress) -> str:
 
 
 class PeerDirectory:
-    """A deduplicated, mergeable set of known peers (keyed by host:port)."""
+    """A deduplicated, **bounded**, mergeable set of known peers (keyed by host:port).
 
-    def __init__(self, seeds: "list[PeerAddress] | tuple[PeerAddress, ...]" = ()) -> None:
+    The flat directory is only the dedup / membership-truth layer — eclipse-resistant
+    *selection* is the bucketed :class:`~knitweb.p2p.addrbook.AddrBook` (#63/#73). So it is
+    capped at ``max_size``: when full, learning a new peer evicts the **oldest non-static**
+    entry, while ``seeds`` (bootstrap/static peers) are a reserved floor that is never
+    evicted — bounding memory and stopping a peer flood from displacing the bootstrap set
+    (#74).
+    """
+
+    def __init__(
+        self,
+        seeds: "list[PeerAddress] | tuple[PeerAddress, ...]" = (),
+        max_size: int = DEFAULT_MAX_DIRECTORY,
+    ) -> None:
         self._peers: dict[str, PeerAddress] = {}
+        self._static: set[str] = set()  # the reserved floor; never evicted
+        self._max = max(1, int(max_size))
         for p in seeds:
-            self.add(p)
+            self.add(p, static=True)
 
-    def add(self, peer: PeerAddress) -> None:
-        self._peers[_key(peer)] = peer
+    def add(self, peer: PeerAddress, *, static: bool = False) -> None:
+        key = _key(peer)
+        if key not in self._peers and len(self._peers) >= self._max:
+            self._evict_one()
+        self._peers[key] = peer
+        if static:
+            self._static.add(key)
+
+    def _evict_one(self) -> None:
+        """Drop the oldest non-static peer (insertion order); never evict the floor."""
+        for k in self._peers:  # dict preserves insertion order
+            if k not in self._static:
+                del self._peers[k]
+                return
+        # all remaining peers are static (cap <= floor): keep them, do not evict.
 
     def __len__(self) -> int:
         return len(self._peers)
@@ -77,11 +109,11 @@ class PeerDirectory:
         return [self._peers[k] for k in sorted(self._peers)]
 
     def merge(self, peers: "list[PeerAddress] | tuple[PeerAddress, ...]") -> int:
-        """Add any peers not already known; return how many were newly learned."""
+        """Add any peers not already known (respecting the cap); return how many learned."""
         learned = 0
         for p in peers:
             if _key(p) not in self._peers:
-                self._peers[_key(p)] = p
+                self.add(p)
                 learned += 1
         return learned
 

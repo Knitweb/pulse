@@ -72,3 +72,17 @@ def test_handle_rejects_bad_message():
         handle_peer_exchange(d, {"kind": "not-pex", "peers": []})
     with pytest.raises(ValueError):
         peers_from_records([{"host": "x"}])              # missing port
+
+
+def test_directory_is_bounded_with_a_static_floor():
+    """#74: the flat directory caps its size and never evicts the bootstrap/static floor,
+    so a peer flood can neither grow memory without bound nor displace the seeds."""
+    seeds = [PeerAddress("10.0.0.%d" % i, 9000 + i) for i in range(3)]
+    d = PeerDirectory(seeds, max_size=10)
+    learned = d.merge(
+        [PeerAddress("203.0.113.%d" % (i % 254 + 1), 5000 + i) for i in range(1000)]
+    )
+    assert len(d) <= 10                 # bounded regardless of flood size
+    assert learned >= 7                 # it did learn (then evicted oldest non-static)
+    for s in seeds:                     # the static floor survives an arbitrarily large flood
+        assert s in d

@@ -3,9 +3,10 @@
 A :class:`FabricNode` is the smallest useful "live web" peer: it owns a fabric
 :class:`~knitweb.fabric.web.Web`, accepts local weaves, and **gossips every woven
 record over the p2p transport** so that connected peers ingest the same records
-into their own Web. Once a record has propagated, two nodes hold the *same set of
-node CIDs* and therefore the same :func:`~knitweb.fabric.items.web_state_root` —
-they have **converged**.
+into their own Web. Once a record has propagated, two nodes hold the *same nodes
+**and edges*** and therefore the same :func:`~knitweb.fabric.items.web_state_root`
+— which commits to the full graph as ``sha256(node_root ‖ edge_root)`` (#49/#80),
+not just the node CIDs — so they have **converged**.
 
 This is the first increment of issue #9 (a live p2p fabric node). It deliberately
 reuses the existing Phase-3 transport primitives rather than inventing a new one:
