@@ -16,6 +16,7 @@ from ..fabric.web import Web
 from ..fabric import provenance
 from ..core import canonical
 from ..synaptic import bytecode as _bc
+from .quantize import quantize_weight
 from .retrieve import CandidateSet
 
 __all__ = [
@@ -75,8 +76,31 @@ class Selection:
 
 def _query_fingerprint(query: str | object) -> str:
     if isinstance(query, Mapping):
-        return canonical.cid(query)
+        safe_query = _canonicalize_query_for_fingerprint(query)
+        return canonical.cid(safe_query)
     return canonical.cid({"text": str(query)})
+
+
+def _canonicalize_query_for_fingerprint(value: object) -> object:
+    if isinstance(value, Mapping):
+        normalized: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError("query keys must be str")
+            normalized[key] = _canonicalize_query_for_fingerprint(item)
+        return normalized
+    if isinstance(value, list):
+        return [_canonicalize_query_for_fingerprint(item) for item in value]
+    if isinstance(value, tuple):
+        return [_canonicalize_query_for_fingerprint(item) for item in value]
+    if isinstance(value, set):
+        ordered = [_canonicalize_query_for_fingerprint(item) for item in value]
+        return sorted(ordered, key=repr)
+    if isinstance(value, float):
+        # Canonical CBOR used by this codebase rejects floats. Keep digest stability
+        # without dropping signal by preserving a deterministic decimal string.
+        return repr(value)
+    return value
 
 
 def _relation_record(relation: _bc.Relation) -> dict:
@@ -180,6 +204,8 @@ def _relation_from_candidate(
     web: Web,
     *,
     query: str | object,
+    reputation: int,
+    recency: float = 1.0,
 ) -> _bc.Relation:
     subject = candidate_cid
     obj = candidate_cid
@@ -188,7 +214,6 @@ def _relation_from_candidate(
         neighbors = web.neighbors(candidate_cid)
     predicate = neighbors[0] if neighbors else candidate_cid
     source_type = "Unknown"
-    weight = 1
 
     if isinstance(query, dict):
         if isinstance(query.get("subject"), str):
@@ -200,10 +225,24 @@ def _relation_from_candidate(
         if isinstance(query.get("object"), str):
             qo = str(query["object"])  # type: ignore[index]
             obj = qo if qo in web.nodes else candidate_cid
-        if isinstance(query.get("weight"), int) and query["weight"] >= 0:  # type: ignore[operator]
-            weight = int(query["weight"])  # type: ignore[index]
         if isinstance(query.get("source_type"), str):
             source_type = str(query["source_type"])  # type: ignore[index]
+
+    recency_value = recency
+    pouw_score = 1.0
+    if isinstance(query, dict) and isinstance(query.get("pouw_score"), (int, float)):
+        pouw_score = float(query["pouw_score"])  # type: ignore[index]
+    elif isinstance(query, dict) and isinstance(query.get("weight"), (int, float)):
+        # Compatibility shim for callers that send legacy output weight hints.
+        pouw_score = float(query["weight"])  # type: ignore[index]
+    if isinstance(query, dict) and isinstance(query.get("recency"), (int, float)):
+        recency_value = float(query["recency"])  # type: ignore[index]
+
+    weight = quantize_weight(
+        reputation=reputation,
+        recency=recency_value,
+        pouw_score=pouw_score,
+    )
 
     return _bc.Relation(
         subject=subject,
@@ -269,6 +308,7 @@ def distill(
 
     budget_exhausted = len(candidates.cids) > max_iters
     iters = min(len(candidates.cids), max_iters)
+    candidate_reputation = {candidate.cid: candidate.reputation for candidate in candidates.candidates}
 
     collected: dict[tuple, _bc.Relation] = {}
     source_map: dict[tuple, tuple[str, ...]] = {}
@@ -278,7 +318,14 @@ def distill(
     intermediate_order: list[str] = []
 
     for candidate in candidates.cids[:iters]:
-        rel = _relation_from_candidate(candidate, web, query=query)
+        candidate_meta = candidate_reputation.get(candidate, 0)
+        rel = _relation_from_candidate(
+            candidate,
+            web,
+            query=query,
+            recency=1.0,
+            reputation=candidate_meta,
+        )
         relation_record = _relation_record(rel)
         rel_cid, inter_cid = _relation_signature(
             candidate, rel, mode, query
@@ -290,7 +337,13 @@ def distill(
                 rel = _parse_relation_record(rel_record) if rel_record is not None else rel
             except TypeError:
                 # Corrupt cache entries are ignored and rebuilt.
-                rel = _relation_from_candidate(candidate, web, query=query)
+                rel = _relation_from_candidate(
+                    candidate,
+                    web,
+                    query=query,
+                    recency=1.0,
+                    reputation=candidate_meta,
+                )
                 is_cached = False
 
         if not is_cached:

@@ -115,6 +115,7 @@ class Candidate:
 
     cid: str
     source_cids: tuple[str, ...]
+    reputation: int = 0
 
 
 @dataclass(frozen=True)
@@ -193,7 +194,23 @@ def retrieve(
                 discovered.append(cid)
 
     scoped = [cid for cid in discovered if _in_scope(web.nodes[cid], scope)]
-    cids = tuple(sorted(scoped))
+
+    def _candidate_reputation(cid: str) -> int:
+        score = 0
+        for edge in web.outgoing_edges(cid):
+            rep = web.edge_metadata(edge).get("reputation")
+            if isinstance(rep, int) and rep > score:
+                score = rep
+        for edge in web.incoming_edges(cid):
+            rep = web.edge_metadata(edge).get("reputation")
+            if isinstance(rep, int) and rep > score:
+                score = rep
+        return score
+
+    scored = [(cid, _candidate_reputation(cid)) for cid in scoped]
+    ordered = sorted(scored, key=lambda item: (-item[1], item[0]))
+    cids = tuple(cid for cid, _ in ordered)
+    score_by_cid = {cid: score for cid, score in ordered}
 
     candidate_records: list[Candidate] = []
     ancestor_records: list[tuple[str, ...]] = []
@@ -202,7 +219,9 @@ def retrieve(
             ancestors = tuple(provenance.ancestry(web, cid))
         except Exception:
             ancestors = ()
-        candidate_records.append(Candidate(cid=cid, source_cids=ancestors[:1]))  # minimal source signature
+        candidate_records.append(
+            Candidate(cid=cid, source_cids=ancestors[:1], reputation=score_by_cid.get(cid, 0))
+        )  # minimal source signature + rank score
         ancestor_records.append(ancestors)
 
     current = web_state_cid or web_state_root(web)

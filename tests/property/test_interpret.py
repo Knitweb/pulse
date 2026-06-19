@@ -8,6 +8,7 @@ from knitweb.core import crypto
 from knitweb.fabric.items import web_state_root
 from knitweb.fabric.web import Web
 from knitweb.interpret import Candidate, CandidateSet, distill, retrieve
+from knitweb.interpret.quantize import quantize_weight
 
 
 def _seeded_web(seed: int = 0) -> Web:
@@ -229,3 +230,97 @@ def test_distill_intermediate_links_to_relation_node():
     assert selection.intermediate_cids
     for intermediate in selection.intermediate_cids:
         assert any(e.rel == "distilled-from" for e in web._out.get(intermediate, ()))
+
+
+def test_retrieve_respects_reputation_metadata_ordering():
+    web = Web()
+    a = web.weave(
+        {
+            "kind": "knowledge",
+            "title": "A",
+            "body": "open",
+            "scope": "public",
+            "author": "alice",
+        }
+    )
+    high_rep = web.weave(
+        {
+            "kind": "knowledge",
+            "title": "B",
+            "body": "open",
+            "scope": "public",
+            "author": "alice",
+        }
+    )
+    low_rep = web.weave(
+        {
+            "kind": "knowledge",
+            "title": "C",
+            "body": "open",
+            "scope": "public",
+            "author": "alice",
+        }
+    )
+    web.link(a, high_rep, "supports", 1, metadata={"reputation": 9})
+    web.link(a, low_rep, "supports", 1, metadata={"reputation": 2})
+
+    result = retrieve({"seed": (high_rep, low_rep)}, ("public",), web, depth=0)
+    assert result.cids == (high_rep, low_rep)
+
+
+def test_quantize_weight_is_bound_and_deterministic():
+    web = Web()
+    a = web.weave(
+        {
+            "kind": "knowledge",
+            "title": "A",
+            "body": "open",
+            "scope": "public",
+            "author": "alice",
+        }
+    )
+    b = web.weave(
+        {
+            "kind": "knowledge",
+            "title": "B",
+            "body": "open",
+            "scope": "public",
+            "author": "alice",
+        }
+    )
+    web.link(a, b, "supports", 1, metadata={"reputation": 7})
+
+    query = retrieve({"seed": (b,)}, ("public",), web, depth=0)
+    selection = distill(
+        query,
+        {"pouw_score": 4, "recency": 1},
+        web=web,
+        max_iters=4,
+    )
+
+    assert len(selection.relations) == 1
+    assert selection.relations[0].weight == quantize_weight(
+        reputation=7,
+        recency=1.0,
+        pouw_score=4,
+    )
+
+
+def test_distill_query_fingerprint_handles_float_signal_inputs():
+    web = Web()
+    seed = web.weave(
+        {"kind": "knowledge", "title": "A", "body": "open", "scope": "public", "author": "alice"}
+    )
+    target = web.weave(
+        {"kind": "knowledge", "title": "B", "body": "open", "scope": "public", "author": "alice"}
+    )
+    web.link(seed, target, "supports")
+
+    query = retrieve({"seed": (target,)}, ("public",), web, depth=0)
+    selection = distill(
+        query,
+        {"pouw_score": 4.5, "recency": 0.75},
+        web=web,
+        max_iters=2,
+    )
+    assert len(selection.relations) == 1
