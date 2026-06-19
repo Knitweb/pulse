@@ -149,5 +149,83 @@ def test_distill_respects_iteration_cap_and_tracks_budget_flag():
     )
     assert selection.log.iterations == 3
     assert selection.log.sub_calls == 3
+    assert selection.log.cache_hits == 0
     assert selection.log.budget_exhausted is True
     assert len(selection.relations) <= 3
+
+
+@pytest.mark.property
+def test_distill_reuses_intermediate_nodes_for_identical_query():
+    web = Web()
+    node_a = web.weave(
+        {
+            "kind": "knowledge",
+            "title": "A",
+            "body": "open",
+            "scope": "public",
+            "author": "alice",
+        }
+    )
+    node_b = web.weave(
+        {
+            "kind": "knowledge",
+            "title": "B",
+            "body": "open",
+            "scope": "public",
+            "author": "alice",
+        }
+    )
+    web.link(node_a, node_b, "supports")
+
+    first = distill(
+        retrieve({"kind": "knowledge", "seed": node_a}, ("public",), web, depth=1),
+        "test",
+        web=web,
+        max_iters=4,
+    )
+    size_after_first = len(web.nodes)
+
+    second = distill(
+        retrieve({"kind": "knowledge", "seed": node_a}, ("public",), web, depth=1),
+        "test",
+        web=web,
+        max_iters=4,
+    )
+    assert len(web.nodes) == size_after_first
+    assert second.log.cache_hits >= first.log.cache_hits
+    assert len(second.intermediate_cids) == len(first.intermediate_cids)
+    assert second.intermediate_cids == first.intermediate_cids
+
+
+@pytest.mark.property
+def test_distill_intermediate_links_to_relation_node():
+    web = Web()
+    node_a = web.weave(
+        {
+            "kind": "knowledge",
+            "title": "A",
+            "body": "open",
+            "scope": "public",
+            "author": "alice",
+        }
+    )
+    node_b = web.weave(
+        {
+            "kind": "knowledge",
+            "title": "B",
+            "body": "open",
+            "scope": "public",
+            "author": "alice",
+        }
+    )
+    web.link(node_a, node_b, "supports")
+
+    selection = distill(
+        retrieve({"kind": "knowledge", "seed": node_a}, ("public",), web, depth=1),
+        {"subject": node_b, "predicate": "supports", "object": node_a},
+        web=web,
+        max_iters=3,
+    )
+    assert selection.intermediate_cids
+    for intermediate in selection.intermediate_cids:
+        assert any(e.rel == "distilled-from" for e in web._out.get(intermediate, ()))

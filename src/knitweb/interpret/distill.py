@@ -7,14 +7,14 @@ artifact candidate for downstream bytecode compilation.
 
 from __future__ import annotations
 
-import hashlib
 import time
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from ..fabric import attest
 from ..fabric.web import Web
 from ..fabric import provenance
+from ..core import canonical
 from ..synaptic import bytecode as _bc
 from .retrieve import CandidateSet
 
@@ -24,6 +24,10 @@ __all__ = [
     "distill",
     "gate_relations",
 ]
+
+_DISTILL_RELATION_KIND = "distill-relation"
+_DISTILL_INTERMEDIATE_KIND = "distill-intermediate"
+_DISTILLED_FROM_REL = "distilled-from"
 
 
 def _require_int(name: str, value: int, minimum: int = 0) -> None:
@@ -49,6 +53,7 @@ class DistillIterationLog:
 
     iterations: int
     sub_calls: int
+    cache_hits: int
     elapsed_ms: int
     budget_exhausted: bool
 
@@ -59,12 +64,71 @@ class Selection:
 
     relations: tuple[_bc.Relation, ...]
     relation_sources: tuple[tuple[str, ...], ...]
+    intermediate_cids: tuple[str, ...]
     log: DistillIterationLog
     query: str | object
 
     @property
     def relation_count(self) -> int:
         return len(self.relations)
+
+
+def _query_fingerprint(query: str | object) -> str:
+    if isinstance(query, Mapping):
+        return canonical.cid(query)
+    return canonical.cid({"text": str(query)})
+
+
+def _relation_record(relation: _bc.Relation) -> dict:
+    """Deterministic node payload for a distilled relation."""
+    return {
+        "kind": _DISTILL_RELATION_KIND,
+        "subject": relation.subject,
+        "predicate": relation.predicate,
+        "object": relation.obj,
+        "source_type": relation.source_type,
+        "weight": relation.weight,
+    }
+
+
+def _parse_relation_record(record: dict) -> _bc.Relation:
+    if not isinstance(record, dict) or record.get("kind") != _DISTILL_RELATION_KIND:
+        raise TypeError("relation node missing distill payload")
+    try:
+        return _bc.Relation(
+            subject=record["subject"],
+            predicate=record["predicate"],
+            obj=record["object"],
+            source_type=str(record.get("source_type", "Unknown")),
+            weight=int(record["weight"]),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise TypeError("malformed distill relation node") from exc
+
+
+def _intermediate_record(
+    query: str | object,
+    candidate_cid: str,
+    relation_cid: str,
+    mode: str,
+) -> dict:
+    return {
+        "kind": _DISTILL_INTERMEDIATE_KIND,
+        "query_fingerprint": _query_fingerprint(query),
+        "candidate": candidate_cid,
+        "relation": relation_cid,
+        "mode": mode,
+    }
+
+
+def _relation_signature(
+    candidate_cid: str, relation: _bc.Relation, mode: str, query: str | object
+) -> tuple[str, str]:
+    """Stable tuple for distill intermediate/relation reuse."""
+    relation_record = _relation_record(relation)
+    relation_cid = canonical.cid(relation_record)
+    intermediate_record = _intermediate_record(query, candidate_cid, relation_cid, mode)
+    return relation_cid, canonical.cid(intermediate_record)
 
 
 def _gate_relation(
@@ -150,19 +214,34 @@ def _relation_from_candidate(
     )
 
 
-def _candidate_signature(query: str | object, candidate: str, max_iters: int, mode: str) -> str:
-    """Deterministic signature for a candidate's mined intermediate trace.
-
-    The signature lets future callers cache sub-steps without serializing full
-    records. It includes only primitives that matter for distillation output.
-    """
-    payload = {
-        "candidate": candidate,
-        "query": query,
-        "max_iters": max_iters,
-        "mode": mode,
-    }
-    return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
+def _emit_intermediate(
+    web: Web,
+    query: str | object,
+    candidate: str,
+    relation: _bc.Relation,
+    mode: str,
+    *, is_cached: bool,
+) -> tuple[str, str]:
+    relation_record = _relation_record(relation)
+    relation_cid = canonical.cid(relation_record)
+    if not is_cached:
+        web.weave(relation_record)
+    intermediate_record = _intermediate_record(
+        query=query,
+        candidate_cid=candidate,
+        relation_cid=relation_cid,
+        mode=mode,
+    )
+    intermediate_cid = canonical.cid(intermediate_record)
+    web.weave(intermediate_record)
+    try:
+        web.link(intermediate_cid, relation_cid, _DISTILLED_FROM_REL, weight=1)
+    except (KeyError, ValueError):
+        # `web.link` can fail deterministically if node ordering changes or an
+        # internal relation is stale; this keeps distillation moving and leaves
+        # a deterministic fallback for caller-facing outputs.
+        pass
+    return relation_cid, intermediate_cid
 
 
 def distill(
@@ -195,20 +274,54 @@ def distill(
     source_map: dict[tuple, tuple[str, ...]] = {}
     sub_calls = 0
     prompt_bytes = 0
+    cache_hits = 0
+    intermediate_order: list[str] = []
 
     for candidate in candidates.cids[:iters]:
-        sub_calls += 1
-        # Every call produces an intermediate, deterministic relation signature. In
-        # future passes this can cache/track mined sub-results. We still keep the
-        # relation derivation pure and deterministic today.
-        _ = _candidate_signature(query, candidate, max_iters, mode)
         rel = _relation_from_candidate(candidate, web, query=query)
+        relation_record = _relation_record(rel)
+        rel_cid, inter_cid = _relation_signature(
+            candidate, rel, mode, query
+        )
+        is_cached = rel_cid in web.nodes and inter_cid in web.nodes
+        if is_cached:
+            try:
+                rel_record = web.get(rel_cid)
+                rel = _parse_relation_record(rel_record) if rel_record is not None else rel
+            except TypeError:
+                # Corrupt cache entries are ignored and rebuilt.
+                rel = _relation_from_candidate(candidate, web, query=query)
+                is_cached = False
+
+        if not is_cached:
+            web.weave(relation_record)
+            rel_cid, inter_cid = _emit_intermediate(
+                web=web,
+                query=query,
+                candidate=candidate,
+                relation=rel,
+                mode=mode,
+                is_cached=False,
+            )
+        else:
+            cache_hits += 1
+            rel_cid, inter_cid = _emit_intermediate(
+                web=web,
+                query=query,
+                candidate=candidate,
+                relation=rel,
+                mode=mode,
+                is_cached=True,
+            )
+
+        intermediate_order.append(inter_cid)
         rel_key = _relation_key(rel)
         if rel_key in collected:
             # stable dedupe; preserve source union for reproducibility
             source_map[rel_key] += (candidate,)
             continue
 
+        sub_calls += 1
         rel_bytes = (len(rel.subject) + len(rel.predicate) + len(rel.obj)).to_bytes(8, "big")
         prompt_bytes += len(rel_bytes)
         if prompt_bytes > max_prompt_bytes:
@@ -223,9 +336,11 @@ def distill(
     return Selection(
         relations=relations,
         relation_sources=tuple(source_map.get(_relation_key(r), ()) for r in relations),
+        intermediate_cids=tuple(intermediate_order),
         log=DistillIterationLog(
             iterations=iters,
             sub_calls=sub_calls,
+            cache_hits=cache_hits,
             elapsed_ms=elapsed_ms,
             budget_exhausted=budget_exhausted,
         ),
