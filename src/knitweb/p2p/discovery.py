@@ -27,6 +27,7 @@ from .transport import PeerAddress
 __all__ = [
     "PEER_EXCHANGE_KIND",
     "DEFAULT_SHARE_K",
+    "MAX_PEERS",
     "PeerDirectory",
     "peers_from_records",
     "peer_exchange_message",
@@ -45,6 +46,13 @@ PEER_EXCHANGE_KIND = "peer-exchange"
 # compute regardless of how large the Web becomes. ``None`` anywhere means "all".
 DEFAULT_SHARE_K = 32
 
+# Hard cap on the flat directory size. Under a sustained PEX flood the directory
+# would otherwise grow without bound (even with AddrBook bounding the dial set).
+# When the directory is full, the oldest non-static peer is evicted (LRU-on-insert)
+# before the new one is added.  Static/seed peers — those supplied at construction
+# time — are pinned and are never evicted.
+MAX_PEERS = 1024
+
 
 def _key(peer: PeerAddress) -> str:
     # Carrier-aware key. A relay:// peer routes by its ``params`` mailbox (its
@@ -56,15 +64,38 @@ def _key(peer: PeerAddress) -> str:
 
 
 class PeerDirectory:
-    """A deduplicated, mergeable set of known peers (keyed by host:port)."""
+    """A deduplicated, mergeable set of known peers (keyed by host:port).
+
+    The directory is capped at :data:`MAX_PEERS` entries.  When full, the oldest
+    non-static peer is evicted (LRU-on-insert) before the incoming peer is added.
+    Peers supplied as *seeds* at construction are marked static and are never evicted.
+    """
 
     def __init__(self, seeds: "list[PeerAddress] | tuple[PeerAddress, ...]" = ()) -> None:
+        # _peers preserves insertion order (Python 3.7+), giving us LRU-on-insert
+        # eviction by iterating from the front.
         self._peers: dict[str, PeerAddress] = {}
+        # Static keys are pinned; they are never candidates for eviction.
+        self._static: set[str] = set()
         for p in seeds:
-            self.add(p)
+            k = _key(p)
+            self._peers[k] = p
+            self._static.add(k)
+
+    def _evict_oldest_dynamic(self) -> None:
+        """Remove the oldest non-static peer to make room.  No-op if none exists."""
+        for k in self._peers:
+            if k not in self._static:
+                del self._peers[k]
+                return
 
     def add(self, peer: PeerAddress) -> None:
-        self._peers[_key(peer)] = peer
+        k = _key(peer)
+        if k in self._peers:
+            return
+        if len(self._peers) >= MAX_PEERS:
+            self._evict_oldest_dynamic()
+        self._peers[k] = peer
 
     def __len__(self) -> int:
         return len(self._peers)
@@ -77,11 +108,19 @@ class PeerDirectory:
         return [self._peers[k] for k in sorted(self._peers)]
 
     def merge(self, peers: "list[PeerAddress] | tuple[PeerAddress, ...]") -> int:
-        """Add any peers not already known; return how many were newly learned."""
+        """Add any peers not already known; return how many were newly learned.
+
+        When the directory is at :data:`MAX_PEERS` capacity, the oldest non-static
+        peer is evicted (LRU-on-insert) before each new peer is inserted, keeping
+        memory bounded even under a sustained PEX flood.
+        """
         learned = 0
         for p in peers:
-            if _key(p) not in self._peers:
-                self._peers[_key(p)] = p
+            k = _key(p)
+            if k not in self._peers:
+                if len(self._peers) >= MAX_PEERS:
+                    self._evict_oldest_dynamic()
+                self._peers[k] = p
                 learned += 1
         return learned
 

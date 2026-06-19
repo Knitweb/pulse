@@ -5,6 +5,7 @@ import pytest
 from knitweb.core import canonical
 from knitweb.p2p.discovery import (
     PEER_EXCHANGE_KIND,
+    MAX_PEERS,
     PeerDirectory,
     handle_peer_exchange,
     peer_exchange_message,
@@ -72,3 +73,41 @@ def test_handle_rejects_bad_message():
         handle_peer_exchange(d, {"kind": "not-pex", "peers": []})
     with pytest.raises(ValueError):
         peers_from_records([{"host": "x"}])              # missing port
+
+
+# -- flat-directory cap (fix #74) -------------------------------------------
+
+
+@pytest.mark.property
+def test_flood_capped_at_max_peers():
+    """Merging 2000 addresses must not grow the directory beyond MAX_PEERS."""
+    d = PeerDirectory()
+    flood = [PeerAddress("10.0.0.1", p) for p in range(1, 2001)]
+    d.merge(flood)
+    assert len(d) <= MAX_PEERS
+
+
+@pytest.mark.property
+def test_static_peers_survive_flood():
+    """Static/seed peers are never evicted, even when a flood fills the directory."""
+    static_a = PeerAddress("192.168.0.1", 7001)
+    static_b = PeerAddress("192.168.0.2", 7002)
+    d = PeerDirectory([static_a, static_b])
+    # Flood with MAX_PEERS addresses using different IPs so they are all distinct.
+    flood = [PeerAddress(f"10.{i // 256}.{i % 256}.1", 5000) for i in range(MAX_PEERS)]
+    d.merge(flood)
+    assert len(d) <= MAX_PEERS
+    assert static_a in d
+    assert static_b in d
+
+
+@pytest.mark.property
+def test_honest_peers_join_below_cap():
+    """Before the directory is full, honest peers join without eviction."""
+    d = PeerDirectory()
+    honest = [PeerAddress("10.1.0.1", p) for p in range(1, 11)]
+    learned = d.merge(honest)
+    assert learned == 10
+    assert len(d) == 10
+    for p in honest:
+        assert p in d

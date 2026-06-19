@@ -2,12 +2,17 @@
 
 The flat ``PeerDirectory.sample`` returns the first ``k`` peers *by sort order*, so an
 attacker who floods ``peer-exchange`` with thousands of attacker-controlled addresses
-fills the directory and every peer the node then dials is the attacker's — a classic
-eclipse. #63 ported Bitcoin Core's source-group/address-group bucketed ``AddrBook`` to
-defend against exactly this, and this suite proves that defence is now ACTIVE on the
-LIVE node path: ``bootstrap_peers`` ingests each seed's reply keyed on the advertising
-seed (the PEX source), and the node SAMPLES dial / re-advertise targets from
-``AddrBook.sample`` (source-group-diverse, tried-biased) rather than the flat first-k.
+would fill the directory and every peer the node dials would be the attacker's — a
+classic eclipse. Two defences are now BOTH ACTIVE on the live node path:
+
+1. **Flat directory cap** (#74): ``PeerDirectory`` is bounded at ``MAX_PEERS`` (1024)
+   by LRU-on-insert eviction of non-static peers, so a flood of thousands only fills
+   1024 slots and memory stays bounded even under sustained PEX floods.
+
+2. **AddrBook bucketing** (#63): ``bootstrap_peers`` ingests each seed's reply keyed on
+   the advertising seed (the PEX source), and the node SAMPLES dial / re-advertise
+   targets from ``AddrBook.sample`` (source-group-diverse, tried-biased) rather than
+   the flat first-k.
 
 The scenario is socket-free: the seed roundtrip is stubbed to return canned PEX replies
 (an attacker seed flooding thousands of attacker addresses, plus a tiny honest seed),
@@ -23,7 +28,7 @@ import pytest
 
 from knitweb.core import canonical
 from knitweb.p2p import AsyncioP2PNode, PeerAddress
-from knitweb.p2p.discovery import PEER_EXCHANGE_KIND, records_from_peers
+from knitweb.p2p.discovery import MAX_PEERS, PEER_EXCHANGE_KIND, records_from_peers
 
 
 def run(coro):
@@ -80,11 +85,14 @@ def test_pex_flood_does_not_eclipse_honest_minority_from_dial_sample():
         await asyncio.wait_for(node.bootstrap_peers(seeds=[ATTACKER_SEED]), timeout=5)
         await asyncio.wait_for(node.bootstrap_peers(seeds=[HONEST_SEED]), timeout=5)
 
-        # The flat directory did learn everything (membership is not the defence) ...
+        # Defence 1 (flat cap, #74): the directory is bounded at MAX_PEERS even though
+        # 4000 attacker addresses were flooded; honest peers evicted some flood entries
+        # and are present in the capped directory.
         assert all(p in node.peers for p in HONEST)
-        assert len(node.peers) > 4000  # flood + honest are all known
+        assert len(node.peers) <= MAX_PEERS  # flood capped — directory stays bounded
 
-        # ... but the BUCKETED book is bounded: the flood cannot exceed the new-table
+        # Defence 2 (AddrBook bucketing, #63): the BUCKETED book is also bounded: the
+        # flood cannot exceed the new-table
         # capacity, no matter how many thousands were pushed.
         assert len(node.addrbook) <= node.addrbook._n_new * node.addrbook._size \
             + node.addrbook._n_tried * node.addrbook._size
