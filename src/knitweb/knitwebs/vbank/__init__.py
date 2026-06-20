@@ -35,6 +35,14 @@ from .liquid import (
     verify_liquid_result,
 )
 from .poll import POLL_KIND, RESULT_KIND, Poll, VbankPoll, audit_result, verify_result
+from .ranked import (
+    RANKED_BALLOT_KIND,
+    RANKED_RESULT_KIND,
+    RankedBallot,
+    collect_ranked_ballots,
+    emit_ranked_ballot,
+    instant_runoff,
+)
 from .tally import BALLOT_KIND, TALLY_KIND, collect_ballots, tally
 
 __all__ = [
@@ -44,6 +52,8 @@ __all__ = [
     "resolve_liquid", "liquid_result_record", "certify_liquid_result",
     "verify_liquid_result", "audit_liquid_result",
     "DELEGATION_KIND", "LIQUID_RESULT_KIND",
+    "RankedBallot", "emit_ranked_ballot", "collect_ranked_ballots", "instant_runoff",
+    "RANKED_BALLOT_KIND", "RANKED_RESULT_KIND",
 ]
 
 
