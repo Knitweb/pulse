@@ -33,9 +33,10 @@ import pytest
 from knitweb.core import canonical
 from knitweb.fabric.items import web_state_root
 from knitweb.fabric.node import FabricNode, WEB_TOPIC, _MESH_PEER_KEY
+from knitweb.p2p.relay import ENVELOPE_PEER_KEY
 from knitweb.p2p import wire
 from knitweb.p2p.inventory import INV
-from knitweb.p2p.mesh import Gossipsub, MeshParams
+from knitweb.p2p.mesh import GRAFT, Gossipsub, MeshParams
 from knitweb.p2p.transport import PeerAddress
 
 
@@ -67,6 +68,11 @@ class _MemTransport:
         target = self._registry[int(peer.params["id"])]
         raw = wire.write_frame_bytes(request)
         decoded = wire.read_frame_bytes(raw)
+        # Mirror the real TCP accept loop / relay: stamp the SENDER's stable carrier id so
+        # the receiver's _dispatch resolves a non-None peer id and mesh/reputation state
+        # keys on a *verified* sender (proven id when present, else this carrier id), never
+        # the self-asserted _MESH_PEER_KEY body string (#143).
+        decoded[ENVELOPE_PEER_KEY] = f"mem:{self._node_id}"
         kind = str(decoded.get("kind"))
         target.bytes_in_by_kind[kind] = target.bytes_in_by_kind.get(kind, 0) + len(raw)
         target.calls_in_by_kind[kind] = target.calls_in_by_kind.get(kind, 0) + 1
@@ -526,5 +532,27 @@ def test_start_gossip_swallows_a_throwing_tick_and_keeps_looping():
 
         await a.stop_gossip()
         assert a._gossip_task is None
+
+    run(scenario())
+
+
+@pytest.mark.interop
+def test_mesh_state_keys_on_verified_identity_not_asserted_field():
+    """#143/#144: mesh state keys on the dispatch-VERIFIED sender id, never the self-asserted
+    ``_MESH_PEER_KEY`` body string — so a fabricated pubkey can neither grow `_scores` nor
+    saturate the mesh. An unidentified sender creates no state at all."""
+    async def scenario():
+        node = FabricNode()
+        spoof = "fabricated-pubkey-deadbeef"
+        graft = {"kind": GRAFT, "topic": WEB_TOPIC, _MESH_PEER_KEY: spoof}
+        # (a) no carrier id -> unidentified -> NO permanent state is created.
+        resp = await node._dispatch(dict(graft))
+        assert resp["kind"] == "mesh-ack"
+        assert spoof not in node._gossip._scores
+        # (b) with a carrier id -> state keys on the VERIFIED carrier id, the asserted
+        #     _MESH_PEER_KEY string is ignored entirely.
+        await node._dispatch({**graft, ENVELOPE_PEER_KEY: "tcp:203.0.113.9"})
+        assert spoof not in node._gossip._scores                  # asserted field never used
+        assert "tcp:203.0.113.9" in node._gossip._scores          # keyed on the verified id
 
     run(scenario())

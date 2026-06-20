@@ -1116,9 +1116,17 @@ class FabricNode(BaseNode):
           * IWANT -> :meth:`Gossipsub.on_iwant`: return a GETDATA of the held ids
             so the body moves through the EXISTING inv getdata path verbatim.
         """
-        sender = msg.get(_MESH_PEER_KEY)
-        if not isinstance(sender, str) or not sender:
-            raise FabricNodeError("mesh control frame missing peer id")
+        # Bind the mesh peer-id to the dispatch-resolved VERIFIED identity (the proven
+        # ``node:<pubkey>`` when an id proof rode the frame, else the carrier id), NEVER the
+        # self-asserted ``_MESH_PEER_KEY`` body string. Otherwise an attacker mints a fresh
+        # fabricated pubkey per frame to (a) grow ``_scores``/``_topic_peers`` without bound
+        # and (b) saturate the victim's mesh with sybils, partitioning it from honest
+        # eager-push. An unidentified sender registers NO permanent state; it re-registers on
+        # its next genuine, identified mesh frame. The #58/#94 proven-vs-asserted-identity
+        # rule applied to the gossip mesh (#143/#144).
+        sender = self._serve_peer_key
+        if sender is None:
+            return {"kind": "mesh-ack"}
         frame = wire.write_frame_bytes({k: v for k, v in msg.items() if k != _MESH_PEER_KEY})
         # Make the sender a known candidate so on_graft/score state can key on it.
         self._gossip.add_peer(WEB_TOPIC, sender)
