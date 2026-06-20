@@ -20,11 +20,12 @@ from __future__ import annotations
 from typing import Dict, List
 
 from ...core import crypto
+from ...ledger import knitweb as _kw
 from ...ledger.knit import Knit
 from ...ledger.node import AccountNode
 from .campaign import audit_settlement, settlement_entries
 
-__all__ = ["EscrowError", "execute_settlement", "validate_payout"]
+__all__ = ["EscrowError", "execute_settlement", "validate_payout", "SettlementSession"]
 
 
 class EscrowError(Exception):
@@ -127,3 +128,87 @@ def execute_settlement(
     if applied is not None:
         applied.add(settlement_cid)
     return knits
+
+
+class SettlementSession:
+    """Resumable, payee-validated escrow-push settlement — distributed Phase 1 (in-process).
+
+    Drives a certified settlement entry-by-entry: the escrow proposes a sender-signed Knit, the
+    payee independently authorises it (:func:`validate_payout`) and accepts, then the escrow
+    applies it and advances a resumable cursor. It survives interruption (resume from the cursor)
+    and is idempotent across sessions when given an ``applied`` set of settlement CIDs. Real
+    cross-node transport is the Phase-2 wiring; this is the provable in-process core that puts the
+    propose → payee-validate → accept → apply handshake under test.
+    """
+
+    def __init__(self, settlement_att, outcome_record, campaign_record, pledges,
+                 escrow: AccountNode, payees: Dict[str, AccountNode], *,
+                 symbol: str = "PLS", applied: set | None = None):
+        if not audit_settlement(settlement_att, outcome_record, campaign_record, pledges):
+            raise ValueError("settlement does not audit; refusing to settle")
+        self._att = settlement_att
+        self._outcome = outcome_record
+        self._campaign = campaign_record
+        self._pledges = pledges
+        self._escrow = escrow
+        self._payees = payees
+        self._symbol = symbol
+        self._applied = applied
+        self._cid = settlement_att.cid
+        if applied is not None and self._cid in applied:
+            raise EscrowError(f"settlement {self._cid} already executed")
+        _mode, self._entries = settlement_entries(outcome_record, campaign_record, pledges)
+        self.total = sum(amount for _cid, _payee, amount in self._entries)
+        # Validate payees + funding up front (all-or-nothing, same guards as execute_settlement).
+        for payee_addr in {payee for _cid, payee, _amount in self._entries}:
+            node = payees.get(payee_addr)
+            if node is None:
+                raise EscrowError(f"no account provided for payee {payee_addr}")
+            if node.address != payee_addr:
+                raise EscrowError(f"payee node address mismatch for {payee_addr}")
+            if payee_addr == escrow.address:
+                raise EscrowError("a payee may not be the escrow itself (self-transfer)")
+            if node.network != escrow.network:
+                raise EscrowError(f"payee {payee_addr} is on a different network than the escrow")
+        if escrow.balance(symbol) < self.total:
+            raise EscrowError(f"escrow has {escrow.balance(symbol)} {symbol}, settlement needs {self.total}")
+        self._cursor = 0
+        self._knits: List[Knit] = []
+
+    @property
+    def cursor(self) -> int:
+        return self._cursor
+
+    def is_complete(self) -> bool:
+        return self._cursor >= len(self._entries)
+
+    def step(self, timestamp: int) -> Knit | None:
+        """Process the next payout entry; return the applied Knit, or None if already complete."""
+        if self.is_complete():
+            return None
+        _cid, payee_addr, amount = self._entries[self._cursor]
+        payee = self._payees[payee_addr]
+        proposed = self._escrow.propose(payee.pub, self._symbol, amount, timestamp)
+        # the payee independently authorises the proposal before co-signing
+        if not validate_payout(proposed, self._att, self._outcome, self._campaign,
+                               self._pledges, payee.pub, symbol=self._symbol):
+            raise EscrowError("payee refused: proposal does not match the settlement")
+        signed = payee.accept(proposed)
+        ok, reason = _kw.validate_knit(signed, self._escrow.network)
+        if not ok:
+            raise EscrowError(f"refusing to apply invalid knit: {reason}")
+        self._escrow.apply_sent(signed)
+        payee.apply_received(signed)
+        self._cursor += 1
+        self._knits.append(signed)
+        if self.is_complete() and self._applied is not None:
+            self._applied.add(self._cid)
+        return signed
+
+    def run(self, start_timestamp: int) -> List[Knit]:
+        """Drive the session to completion; return all applied Knits (resumes from the cursor)."""
+        offset = 0
+        while not self.is_complete():
+            self.step(start_timestamp + offset)
+            offset += 1
+        return list(self._knits)
