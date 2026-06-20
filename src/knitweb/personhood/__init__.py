@@ -13,10 +13,15 @@ constants.
 
 from __future__ import annotations
 
-from . import anchor, nullifier, pairwise, records
+from . import anchor, nullifier, pairwise, records, status_tree
 from .anchor import CoSignedAnchor, co_sign_anchor
 from .nullifier import new_holder_secret, scope_nullifier
 from .pairwise import derive_pairwise_keypair, pairwise_address, pairwise_did
+from .status_tree import (
+    StatusTree,
+    verify_membership,
+    verify_non_membership,
+)
 from .records import (
     ANCHOR_KIND,
     CRED_TYPE,
@@ -32,6 +37,10 @@ __all__ = [
     "anchor",
     "nullifier",
     "pairwise",
+    "status_tree",
+    "StatusTree",
+    "verify_membership",
+    "verify_non_membership",
     "PersonhoodSchemaError",
     "ANCHOR_KIND",
     "REVOKE_KIND",
