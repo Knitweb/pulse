@@ -40,26 +40,44 @@ def execute_settlement(
     *,
     timestamp: int,
     symbol: str = "PLS",
+    applied: set | None = None,
 ) -> List[Knit]:
     """Move PLS escrow→payees per a certified settlement; return the applied Knits.
 
     ``payees`` maps a payout address (the beneficiary, or each pledger) to its ``AccountNode``.
-    Raises :class:`ValueError` if the settlement does not audit, or :class:`EscrowError` if a
-    payee account is missing/mismatched or the escrow is underfunded.
+    ``applied`` is an optional, caller-persisted set of already-executed settlement CIDs: pass it
+    to make execution **one-shot/idempotent** — re-executing the same settlement raises rather
+    than paying again (the escrow-balance check alone does NOT stop a replay against an over-
+    funded or re-topped escrow, since each transfer uses a fresh nonce).
+
+    Raises :class:`ValueError` if the settlement does not audit, or :class:`EscrowError` if it was
+    already applied, a payee account is missing/mismatched, a payee would be a self-transfer or on
+    a different network, or the escrow is underfunded.
     """
     if not audit_settlement(settlement_att, outcome_record, campaign_record, pledges):
         raise ValueError("settlement does not audit; refusing to move value")
 
+    settlement_cid = settlement_att.cid
+    if applied is not None and settlement_cid in applied:
+        raise EscrowError(f"settlement {settlement_cid} already executed")
+
     _mode, entries = settlement_entries(outcome_record, campaign_record, pledges)
     total = sum(amount for _cid, _payee, amount in entries)
 
-    # Validate payees and funding *before* moving anything (all-or-nothing).
+    # Validate EVERYTHING before moving any value, so a per-transfer ledger rule can never fail
+    # mid-loop and leave a partial payout (the all-or-nothing guarantee). The checks below cover
+    # exactly the per-transfer invariants AccountNode.transfer_to / validate_knit would enforce:
+    # a known matching payee account, sender != receiver, same network, and enough total funds.
     for payee_addr in {payee for _cid, payee, _amount in entries}:
         node = payees.get(payee_addr)
         if node is None:
             raise EscrowError(f"no account provided for payee {payee_addr}")
         if node.address != payee_addr:
             raise EscrowError(f"payee node address mismatch for {payee_addr}")
+        if payee_addr == escrow.address:
+            raise EscrowError("a payee may not be the escrow itself (self-transfer)")
+        if node.network != escrow.network:
+            raise EscrowError(f"payee {payee_addr} is on a different network than the escrow")
     if escrow.balance(symbol) < total:
         raise EscrowError(f"escrow has {escrow.balance(symbol)} {symbol}, settlement needs {total}")
 
@@ -67,4 +85,6 @@ def execute_settlement(
     for index, (_cid, payee_addr, amount) in enumerate(entries):
         knit = escrow.transfer_to(payees[payee_addr], symbol, amount, timestamp + index)
         knits.append(knit)
+    if applied is not None:
+        applied.add(settlement_cid)
     return knits

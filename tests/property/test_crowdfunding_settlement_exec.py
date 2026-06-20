@@ -109,6 +109,48 @@ def test_missing_payee_account_raises():
 
 
 @pytest.mark.property
+def test_double_execute_blocked_by_applied_set():
+    escrow, beneficiary = AccountNode(), AccountNode()
+    funder = AccountNode(genesis_balances={"PLS": 5000})
+    funder.transfer_to(escrow, "PLS", 600, timestamp=1)
+    funder.transfer_to(escrow, "PLS", 600, timestamp=2)   # over-fund: escrow=1200, payout=600
+    authority = _authority()
+    campaign = authority.define(Campaign(scope=SCOPE, goal=500, opens_at=0, closes_at=10,
+                                         beneficiary=beneficiary.address))
+    pledges = [_pledge(funder.address, _nf("p0"), 600)]
+    outcome = authority.certify_outcome(campaign.record, pledges)
+    settlement = authority.settle(outcome.record, campaign.record, pledges)
+
+    applied: set = set()
+    execute_settlement(settlement, outcome.record, campaign.record, pledges,
+                       escrow, {beneficiary.address: beneficiary}, timestamp=100, applied=applied)
+    assert beneficiary.balance("PLS") == 600
+    # replaying the SAME settlement must not pay again, even though the escrow still has 600
+    with pytest.raises(EscrowError):
+        execute_settlement(settlement, outcome.record, campaign.record, pledges,
+                           escrow, {beneficiary.address: beneficiary}, timestamp=200, applied=applied)
+    assert beneficiary.balance("PLS") == 600  # not double-paid
+
+
+@pytest.mark.property
+def test_self_transfer_payee_rejected_before_value_moves():
+    escrow, beneficiary = AccountNode(), AccountNode()
+    funder = AccountNode(genesis_balances={"PLS": 1000})
+    funder.transfer_to(escrow, "PLS", 300, timestamp=1)
+    authority = _authority()
+    campaign = authority.define(Campaign(scope=SCOPE, goal=5000, opens_at=0, closes_at=10,
+                                         beneficiary=beneficiary.address))
+    # a (signed-by-escrow) pledge whose actor is the escrow itself -> refund would self-transfer
+    pledges = [_pledge(escrow.address, _nf("x"), 300)]
+    outcome = authority.certify_outcome(campaign.record, pledges)  # goal missed -> refund
+    settlement = authority.settle(outcome.record, campaign.record, pledges)
+    with pytest.raises(EscrowError):
+        execute_settlement(settlement, outcome.record, campaign.record, pledges,
+                           escrow, {escrow.address: escrow}, timestamp=100)
+    assert escrow.balance("PLS") == 300  # nothing moved
+
+
+@pytest.mark.property
 def test_non_auditing_settlement_is_refused_before_value_moves():
     escrow = AccountNode(genesis_balances={"PLS": 1000})
     beneficiary = AccountNode()
