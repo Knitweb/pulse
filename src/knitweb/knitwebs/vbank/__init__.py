@@ -17,13 +17,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ...core import crypto
 from ...core import canonical, crypto
 from ...fabric.attest import Attestation, attest
 from ...fabric.web import Web
 from ...personhood.gate import PersonhoodTicket
+from .tally import BALLOT_KIND, TALLY_KIND, tally
 
-__all__ = ["Ballot", "VbankKnitweb"]
+__all__ = ["Ballot", "VbankKnitweb", "tally", "BALLOT_KIND", "TALLY_KIND"]
 
 
 @dataclass(frozen=True)
@@ -35,16 +35,20 @@ class Ballot:
     choice: int          # option index (integer-only, canonical-safe)
     voter: str           # pls1 address of the holder's pairwise key
     scope_nullifier: str # one-person-one-vote dedup key (no identity)
+    seq: int = 0         # re-vote counter; the highest seq for a nullifier wins in the tally
 
     def __post_init__(self) -> None:
-        if not isinstance(self.choice, int) or isinstance(self.choice, bool):
-            raise TypeError("ballot choice must be an int")
+        for name, value in (("choice", self.choice), ("seq", self.seq)):
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise TypeError(f"ballot {name} must be an int")
+        if self.seq < 0:
+            raise ValueError("ballot seq must be >= 0")
 
 
 class VbankKnitweb:
     """Emits signed ballots — but only against a valid personhood ticket."""
 
-    KIND = "vbank-ballot"
+    KIND = BALLOT_KIND
 
     def __init__(self, scope: str) -> None:
         if not scope:
@@ -73,6 +77,7 @@ class VbankKnitweb:
             "choice": ballot.choice,
             "actor": ballot.voter,
             "scope_nullifier": ballot.scope_nullifier,
+            "seq": ballot.seq,
         }
         # The record has a fixed key set (no caller-supplied keys), so the load-bearing
         # checks are a valid PLS author address + canonical encodability (rejects floats /
