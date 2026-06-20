@@ -46,6 +46,7 @@ __all__ = [
     "DEFAULT_MAX_INBOUND",
     "DEFAULT_READ_TIMEOUT_S",
     "DEFAULT_ACCEPT_QUEUE_TIMEOUT_S",
+    "DEFAULT_MAX_OPEN_CONNS",
     "TCP_PEER_PREFIX",
     "tcp_peer_id",
     "parse_peer_uri",
@@ -249,6 +250,18 @@ DEFAULT_READ_TIMEOUT_S = 30
 #: integer carrier-policy knob that never touches a hashed/signed path.
 DEFAULT_ACCEPT_QUEUE_TIMEOUT_S = 10
 
+#: Default hard ceiling on concurrently-OPEN inbound sockets (parked + served).
+#: ``accept_queue_timeout_s`` alone bounds parked fds only by
+#: ``(arrival_rate x timeout)``, so a high-arrival-rate burst can still
+#: transiently exhaust the process fd table *within* that window (#174). This
+#: ceiling caps concurrently-open inbound sockets regardless of arrival rate:
+#: over it the newest connection is closed immediately, before it can park, so a
+#: burst can never pin more than ``max_open_conns`` fds. Sized well above
+#: ``max_inbound`` so honest bursts are absorbed while staying under a typical
+#: process fd limit (ulimit ~1024). A deterministic integer carrier-policy knob;
+#: never touches a hashed/signed path.
+DEFAULT_MAX_OPEN_CONNS = 512
+
 
 class TcpTransport:
     """Direct asyncio TCP transport — the original node behavior, extracted.
@@ -300,6 +313,7 @@ class TcpTransport:
         max_inbound: int = DEFAULT_MAX_INBOUND,
         read_timeout_s: int = DEFAULT_READ_TIMEOUT_S,
         accept_queue_timeout_s: int = DEFAULT_ACCEPT_QUEUE_TIMEOUT_S,
+        max_open_conns: int = DEFAULT_MAX_OPEN_CONNS,
     ) -> None:
         if max_inbound < 1:
             raise ValueError("max_inbound must be a positive integer")
@@ -307,15 +321,24 @@ class TcpTransport:
             raise ValueError("read_timeout_s must be a positive integer")
         if accept_queue_timeout_s < 1:
             raise ValueError("accept_queue_timeout_s must be a positive integer")
+        if max_open_conns < max_inbound:
+            # The open ceiling must leave room for every serving slot, else served
+            # connections would be rejected before they could acquire a slot.
+            raise ValueError("max_open_conns must be >= max_inbound")
         self.host = host
         self.port = port
         self.max_inbound = max_inbound
         self.read_timeout_s = read_timeout_s
         self.accept_queue_timeout_s = accept_queue_timeout_s
+        self.max_open_conns = max_open_conns
         self._server: asyncio.AbstractServer | None = None
         # Bounds the number of inbound connections served concurrently. Created
         # lazily in ``listen`` so the semaphore binds to the running loop.
         self._inbound: asyncio.Semaphore | None = None
+        # Count of inbound connections currently OPEN (accepted but not yet
+        # closed), bounded by ``max_open_conns``. Single-threaded asyncio makes
+        # the check-and-increment race-free between awaits.
+        self._open_conns = 0
 
     async def dial(self, peer: PeerAddress, request: dict) -> dict:
         reader, writer = await asyncio.open_connection(peer.host, peer.port)
@@ -340,64 +363,78 @@ class TcpTransport:
 
         self._inbound = asyncio.Semaphore(self.max_inbound)
 
+        async def _close(writer: asyncio.StreamWriter) -> None:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except OSError:
+                # The peer may have already reset the socket; the fd is freed
+                # regardless, so a close-time error is not actionable.
+                pass
+
         async def _accept(
             reader: asyncio.StreamReader, writer: asyncio.StreamWriter
         ) -> None:
-            # Gate on a free serving slot before doing any per-connection work,
-            # so a connection flood queues here instead of fanning out unbounded
-            # handler coroutines and buffers. This coroutine pins the open fd the
-            # instant it runs, so the wait for a slot is itself bounded: a peer
-            # that opens many idle sockets and never sends a frame would
-            # otherwise park one fd-holding coroutine per socket ahead of the
-            # cap, leaving concurrently-open inbound connections unbounded by
-            # ``max_inbound``. A connection that cannot get a slot within the
-            # deadline is closed cleanly here, so parked connections are bounded
-            # by (arrival_rate x accept_queue_timeout_s) and no fd is leaked.
             assert self._inbound is not None
-            try:
-                await asyncio.wait_for(
-                    self._inbound.acquire(), timeout=self.accept_queue_timeout_s
-                )
-            except asyncio.TimeoutError:
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except OSError:
-                    pass
+            # Hard ceiling on concurrently-OPEN inbound sockets (#174), checked
+            # BEFORE parking. The accept-queue deadline below bounds parked fds
+            # only by (arrival_rate x accept_queue_timeout_s), so a high-rate burst
+            # can still transiently exhaust the fd table within that window. Over
+            # the ceiling we drop the newest connection immediately, so a burst can
+            # never pin more than ``max_open_conns`` fds regardless of arrival rate.
+            if self._open_conns >= self.max_open_conns:
+                await _close(writer)
                 return
-            # The remote IP is the stable reputation identity a raw socket exposes
-            # (the port is ephemeral — see :func:`tcp_peer_id`). Stamped onto the
-            # request so the carrier-agnostic dispatch applies the same ban gate +
-            # signature-offense penalty the relay carrier already gets.
-            peer_id = self._socket_peer_id(writer)
+            self._open_conns += 1
             try:
-                # Read exactly one request frame under a deadline: a slow-loris
-                # peer that stalls mid-frame is dropped here, freeing the slot.
+                # Gate on a free serving slot before doing any per-connection work,
+                # so a connection flood queues here instead of fanning out unbounded
+                # handler coroutines and buffers. The wait for a slot is itself
+                # bounded: a connection that cannot get a slot within the deadline
+                # is closed cleanly (slot never acquired ⇒ nothing to release), so
+                # parked connections are bounded by (arrival_rate x timeout).
                 try:
-                    request = await asyncio.wait_for(
-                        read_frame(reader), timeout=self.read_timeout_s
+                    await asyncio.wait_for(
+                        self._inbound.acquire(),
+                        timeout=self.accept_queue_timeout_s,
                     )
-                except WireError as exc:
-                    # A malformed/oversized frame: hand the node a chance to record
-                    # the graded reputation penalty (it owns reputation, not the
-                    # carrier), then write back its error reply. With no hook or no
-                    # peer id the frame is dropped quietly as before.
-                    if on_frame_fault is not None and peer_id is not None:
-                        await write_frame(writer, on_frame_fault(peer_id, exc))
+                except asyncio.TimeoutError:
                     return
-                if peer_id is not None:
-                    request[ENVELOPE_PEER_KEY] = peer_id
-                response = await handler(request)
-                await write_frame(writer, response)
-            except (asyncio.TimeoutError, OSError, WireError):
-                # Carrier-level drop: a peer that cannot complete its single
-                # frame in time, or whose socket fails, loses its slot quietly
-                # rather than pinning resources.
-                pass
+                # The remote IP is the stable reputation identity a raw socket
+                # exposes (the port is ephemeral — see :func:`tcp_peer_id`).
+                # Stamped onto the request so the carrier-agnostic dispatch applies
+                # the same ban gate + signature-offense penalty the relay carrier
+                # already gets.
+                peer_id = self._socket_peer_id(writer)
+                try:
+                    # Read exactly one request frame under a deadline: a slow-loris
+                    # peer that stalls mid-frame is dropped here, freeing the slot.
+                    try:
+                        request = await asyncio.wait_for(
+                            read_frame(reader), timeout=self.read_timeout_s
+                        )
+                    except WireError as exc:
+                        # A malformed/oversized frame: hand the node a chance to
+                        # record the graded reputation penalty (it owns reputation,
+                        # not the carrier), then write back its error reply. With no
+                        # hook or no peer id the frame is dropped quietly as before.
+                        if on_frame_fault is not None and peer_id is not None:
+                            await write_frame(writer, on_frame_fault(peer_id, exc))
+                        return
+                    if peer_id is not None:
+                        request[ENVELOPE_PEER_KEY] = peer_id
+                    response = await handler(request)
+                    await write_frame(writer, response)
+                except (asyncio.TimeoutError, OSError, WireError):
+                    # Carrier-level drop: a peer that cannot complete its single
+                    # frame in time, or whose socket fails, loses its slot quietly
+                    # rather than pinning resources.
+                    pass
+                finally:
+                    self._inbound.release()
             finally:
-                self._inbound.release()
-                writer.close()
-                await writer.wait_closed()
+                self._open_conns -= 1
+                await _close(writer)
 
         self._server = await asyncio.start_server(_accept, self.host, self.port)
         sock = self._server.sockets[0]
