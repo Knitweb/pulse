@@ -63,7 +63,7 @@ def test_pledge_record_carries_no_identity():
         Pledge(scope=SCOPE, amount=500, pledger=addr, scope_nullifier=ticket.scope_nullifier),
         ticket,
     )
-    assert set(record) == {"kind", "scope", "amount", "actor", "scope_nullifier"}
+    assert set(record) == {"kind", "scope", "amount", "actor", "scope_nullifier", "pledged_at"}
     assert record["scope_nullifier"] == scope_nullifier(secret, SCOPE)
 
 

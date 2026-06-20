@@ -25,8 +25,22 @@ from ...core import canonical, crypto
 from ...fabric.attest import Attestation, attest
 from ...fabric.web import Web
 from ...personhood.gate import PersonhoodTicket
+from .campaign import (
+    CAMPAIGN_KIND,
+    OUTCOME_KIND,
+    PLEDGE_KIND,
+    Campaign,
+    CrowdfundingCampaign,
+    audit_outcome,
+    collect_pledges,
+    verify_outcome,
+)
 
-__all__ = ["Pledge", "CrowdfundingKnitweb"]
+__all__ = [
+    "Pledge", "CrowdfundingKnitweb", "PLEDGE_KIND",
+    "Campaign", "CrowdfundingCampaign", "CAMPAIGN_KIND", "OUTCOME_KIND",
+    "verify_outcome", "audit_outcome", "collect_pledges",
+]
 
 
 @dataclass(frozen=True)
@@ -37,18 +51,23 @@ class Pledge:
     amount: int           # PLS-wei, integer-only, strictly positive
     pledger: str          # pls1 address of the holder's pairwise key
     scope_nullifier: str  # which verified person (no identity); NOT deduped for pledges
+    pledged_at: int = 0   # epoch seconds; counted only inside the campaign window
 
     def __post_init__(self) -> None:
         if not isinstance(self.amount, int) or isinstance(self.amount, bool):
             raise TypeError("pledge amount must be an int (PLS-wei)")
         if self.amount <= 0:
             raise ValueError("pledge amount must be strictly positive")
+        if not isinstance(self.pledged_at, int) or isinstance(self.pledged_at, bool):
+            raise TypeError("pledge pledged_at must be an int")
+        if self.pledged_at < 0:
+            raise ValueError("pledge pledged_at must be >= 0")
 
 
 class CrowdfundingKnitweb:
     """Emits signed pledges — but only against a valid personhood ticket."""
 
-    KIND = "crowdfunding-pledge"
+    KIND = PLEDGE_KIND
 
     def __init__(self, scope: str) -> None:
         if not scope:
@@ -76,6 +95,7 @@ class CrowdfundingKnitweb:
             "amount": pledge.amount,
             "actor": pledge.pledger,
             "scope_nullifier": pledge.scope_nullifier,
+            "pledged_at": pledge.pledged_at,
         }
         # Fixed key set (no caller-supplied keys); the load-bearing checks are a valid PLS
         # author address + canonical encodability (rejects floats). Self-contained on core.
