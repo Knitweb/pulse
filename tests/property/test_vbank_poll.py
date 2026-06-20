@@ -242,6 +242,60 @@ def _result_for(authority: VbankPoll, poll_record: dict, ballots: list) -> objec
 
 
 @pytest.mark.property
+def test_weighted_result_sums_fixed_point_weights():
+    priv, authority = _authority()
+    poll = _poll(authority, options=3)
+    ballots = [_ballot(_nf(0), 0), _ballot(_nf(1), 1), _ballot(_nf(2), 0)]
+    weights = {_nf(0): 5, _nf(1): 3, _nf(2): 2}
+    res = authority.certify_result(poll.record, ballots, weights)
+    assert res.record["weighted"] is True
+    assert res.record["results"] == [[0, 7], [1, 3]]      # option 0: 5+2, option 1: 3
+    assert res.record["winner"] == 0 and res.record["winner_votes"] == 7
+    assert res.record["total_weight"] == 10
+    assert res.record["weight_root"] != ""
+    assert verify_result(res.record, poll.record, ballots, weights)
+    assert audit_result(res, poll.record, ballots, weights)
+
+
+@pytest.mark.property
+def test_weighted_audit_fails_with_wrong_weights():
+    priv, authority = _authority()
+    poll = _poll(authority, options=3)
+    ballots = [_ballot(_nf(0), 0), _ballot(_nf(1), 1)]
+    res = authority.certify_result(poll.record, ballots, {_nf(0): 4, _nf(1): 1})
+    assert not verify_result(res.record, poll.record, ballots, {_nf(0): 1, _nf(1): 1})
+    assert not verify_result(res.record, poll.record, ballots)  # unweighted != weighted result
+
+
+@pytest.mark.property
+def test_unweighted_result_has_empty_weight_root():
+    priv, authority = _authority()
+    poll = _poll(authority, options=2)
+    res = authority.certify_result(poll.record, [_ballot(_nf(0), 0), _ballot(_nf(1), 1)])
+    assert res.record["weighted"] is False
+    assert res.record["weight_root"] == ""
+    assert res.record["total_weight"] == 2  # one per voter
+
+
+@pytest.mark.property
+def test_voter_absent_from_weight_map_weighs_zero():
+    priv, authority = _authority()
+    poll = _poll(authority, options=3)
+    ballots = [_ballot(_nf(0), 0), _ballot(_nf(1), 1)]
+    res = authority.certify_result(poll.record, ballots, {_nf(0): 3})  # nf1 omitted -> 0
+    assert res.record["results"] == [[0, 3], [1, 0]]
+    assert res.record["winner"] == 0 and res.record["total_weight"] == 3
+
+
+@pytest.mark.property
+def test_negative_weight_rejected():
+    priv, authority = _authority()
+    poll = _poll(authority, options=2)
+    with pytest.raises(ValueError):
+        authority.certify_result(poll.record, [_ballot(_nf(0), 0)], {_nf(0): -1})
+
+
+@pytest.mark.property
 def test_weave_result_into_web():
     priv, authority = _authority()
     poll_att = _poll(authority, options=2)

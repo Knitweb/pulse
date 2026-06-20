@@ -28,12 +28,19 @@ BALLOT_KIND = "vbank-ballot"
 TALLY_KIND = "vbank-tally"
 
 
-def tally(scope: str, poll_id: str, ballots: Iterable[dict]) -> dict:
+def tally(scope: str, poll_id: str, ballots: Iterable[dict],
+          weights: dict | None = None) -> dict:
     """Return the deterministic ``vbank-tally`` record for ``ballots`` in one poll.
 
     ``ballots`` are ``vbank-ballot`` records (dicts). Every ballot must match ``scope`` and
     ``poll_id`` and carry an integer ``seq`` (the re-vote counter). Raises ``ValueError`` on a
     foreign-kind / wrong-scope / wrong-poll ballot.
+
+    ``weights`` is an optional ``{scope_nullifier: weight}`` map of **non-negative fixed-point
+    integers** (the authority chooses the scale). When given, each counted voter contributes
+    their weight instead of 1 (a voter absent from the map weighs 0), and the result commits to
+    a ``weight_root`` over the counted (nullifier, weight) pairs so a weighted tally stays
+    independently auditable. When ``None``, it is one-person-one-vote.
     """
     if not scope or not poll_id:
         raise ValueError("scope and poll_id must be non-empty")
@@ -57,14 +64,32 @@ def tally(scope: str, poll_id: str, ballots: Iterable[dict]) -> dict:
             winners[nullifier] = (seq, cid, choice)
 
     counts: dict[int, int] = {}
-    for _seq, _cid, choice in winners.values():
-        counts[choice] = counts.get(choice, 0) + 1
+    total_weight = 0
+    weight_entries: List[tuple] = []  # (nullifier, weight) for the counted voters
+    for nullifier, (_seq, _cid, choice) in winners.items():
+        if weights is None:
+            weight = 1
+        else:
+            weight = weights.get(nullifier, 0)
+            if not isinstance(weight, int) or isinstance(weight, bool) or weight < 0:
+                raise ValueError("weights must be non-negative integers (fixed-point)")
+        counts[choice] = counts.get(choice, 0) + weight
+        total_weight += weight
+        weight_entries.append((nullifier, weight))
     results: List[List[int]] = [[choice, counts[choice]] for choice in sorted(counts)]
 
     included_cids = sorted(cid for _seq, cid, _choice in winners.values())
     ballot_root = crypto.merkle_root(
         [crypto.sha256(cid.encode("utf-8")) for cid in included_cids]
     ).hex()
+
+    if weights is None:
+        weight_root = ""  # unweighted: one person, one vote
+    else:
+        weight_entries.sort()
+        weight_root = crypto.merkle_root(
+            [crypto.sha256(canonical.encode([nf, w])) for nf, w in weight_entries]
+        ).hex()
 
     record = {
         "kind": TALLY_KIND,
@@ -73,6 +98,9 @@ def tally(scope: str, poll_id: str, ballots: Iterable[dict]) -> dict:
         "total_voters": len(winners),
         "results": results,
         "ballot_root": ballot_root,
+        "weighted": weights is not None,
+        "total_weight": total_weight,
+        "weight_root": weight_root,
     }
     canonical.encode(record)  # fail fast on any non-canonical content
     return record
