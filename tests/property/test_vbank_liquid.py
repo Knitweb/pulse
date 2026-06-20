@@ -8,11 +8,15 @@ from knitweb.knitwebs.vbank import (
     DELEGATION_KIND,
     LIQUID_RESULT_KIND,
     Delegation,
+    Poll,
+    VbankPoll,
+    audit_liquid_result,
+    certify_liquid_result,
     collect_delegations,
     delegation_map,
     emit_delegation,
-    liquid_results,
     resolve_liquid,
+    verify_liquid_result,
 )
 from knitweb.personhood.gate import PersonhoodTicket
 
@@ -120,13 +124,42 @@ def test_emit_delegation_is_gated_and_signed():
         emit_delegation(delegation, bad_ticket, priv)
 
 
+def _poll(authority_priv):
+    return VbankPoll(authority_priv, SCOPE).define(
+        Poll(scope=SCOPE, poll_id=POLL, options=3, opens_at=0, closes_at=10))
+
+
 @pytest.mark.property
-def test_liquid_results_integration():
+def test_certified_liquid_result():
+    authority_priv, _ = crypto.generate_keypair()
+    poll = _poll(authority_priv)
     ballots = [_ballot(_nf("b"), 1), _ballot(_nf("c"), 2)]
     delegations = [_deleg(_nf("a"), _nf("b"))]  # a -> b (votes 1)
-    result = liquid_results(SCOPE, POLL, ballots, delegations)
-    assert result["kind"] == LIQUID_RESULT_KIND
-    assert result["results"] == [[1, 2], [2, 1]]   # b + a delegated -> 1:2 ; c -> 2:1
-    assert result["direct_voters"] == 2
-    assert result["delegations"] == 1
-    assert result["total_weight"] == 3
+    att = certify_liquid_result(poll.record, ballots, delegations, authority_priv)
+    assert att.verify(author_field="authority")
+    assert att.record["kind"] == LIQUID_RESULT_KIND
+    assert att.record["results"] == [[1, 2], [2, 1]]   # b + a delegated -> 1:2 ; c -> 2:1
+    assert att.record["winner"] == 1 and att.record["winner_votes"] == 2
+    assert att.record["direct_voters"] == 2 and att.record["delegations"] == 1
+    assert audit_liquid_result(att, poll.record, ballots, delegations)
+    # a different delegation set must not verify against this certified result
+    assert not verify_liquid_result(att.record, poll.record, ballots, [])
+
+
+@pytest.mark.property
+def test_only_authority_certifies_liquid_result():
+    authority_priv, _ = crypto.generate_keypair()
+    other_priv, _ = crypto.generate_keypair()
+    poll = _poll(authority_priv)
+    with pytest.raises(ValueError):
+        certify_liquid_result(poll.record, [_ballot(_nf("b"), 1)], [], other_priv)
+
+
+@pytest.mark.property
+def test_liquid_result_excludes_out_of_window_ballots():
+    authority_priv, _ = crypto.generate_keypair()
+    poll = _poll(authority_priv)  # window [0, 10)
+    ballots = [_ballot(_nf("b"), 1), dict(_ballot(_nf("c"), 2), cast_at=999)]  # c is out of window
+    att = certify_liquid_result(poll.record, ballots, [], authority_priv)
+    assert att.record["results"] == [[1, 1]]
+    assert att.record["direct_voters"] == 1

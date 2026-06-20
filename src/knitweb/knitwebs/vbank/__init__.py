@@ -25,11 +25,14 @@ from .liquid import (
     DELEGATION_KIND,
     LIQUID_RESULT_KIND,
     Delegation,
+    audit_liquid_result,
+    certify_liquid_result,
     collect_delegations,
     delegation_map,
     emit_delegation,
-    liquid_results,
+    liquid_result_record,
     resolve_liquid,
+    verify_liquid_result,
 )
 from .poll import POLL_KIND, RESULT_KIND, Poll, VbankPoll, audit_result, verify_result
 from .tally import BALLOT_KIND, TALLY_KIND, collect_ballots, tally
@@ -38,7 +41,9 @@ __all__ = [
     "Ballot", "VbankKnitweb", "tally", "collect_ballots", "BALLOT_KIND", "TALLY_KIND",
     "Poll", "VbankPoll", "POLL_KIND", "RESULT_KIND", "verify_result", "audit_result",
     "Delegation", "emit_delegation", "collect_delegations", "delegation_map",
-    "resolve_liquid", "liquid_results", "DELEGATION_KIND", "LIQUID_RESULT_KIND",
+    "resolve_liquid", "liquid_result_record", "certify_liquid_result",
+    "verify_liquid_result", "audit_liquid_result",
+    "DELEGATION_KIND", "LIQUID_RESULT_KIND",
 ]
 
 

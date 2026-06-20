@@ -27,6 +27,7 @@ from ...core import canonical, crypto
 from ...fabric.attest import Attestation, attest
 from ...fabric.web import Web
 from ...personhood.gate import PersonhoodTicket
+from .poll import POLL_KIND
 from .tally import BALLOT_KIND
 
 __all__ = [
@@ -37,7 +38,10 @@ __all__ = [
     "collect_delegations",
     "delegation_map",
     "resolve_liquid",
-    "liquid_results",
+    "liquid_result_record",
+    "certify_liquid_result",
+    "verify_liquid_result",
+    "audit_liquid_result",
 ]
 
 DELEGATION_KIND = "vbank-delegation"
@@ -163,21 +167,96 @@ def resolve_liquid(direct_choices: Dict[str, int], delegations: Dict[str, str],
     return counts
 
 
-def liquid_results(scope: str, poll_id: str, ballots: List[dict], delegations: List[dict],
-                   weights: Dict[str, int] | None = None) -> dict:
-    """Compute a deterministic liquid-voting result record from ballots + delegations."""
-    direct = _direct_choices(ballots)
+def liquid_result_record(poll_record: dict, ballots: List[dict], delegations: List[dict],
+                         authority_addr: str, weights: Dict[str, int] | None = None) -> dict:
+    """The deterministic ``vbank-liquid-result`` record — pure, unsigned.
+
+    Counts only in-window, choice-valid direct ballots, then flows delegated weight via
+    :func:`resolve_liquid`. Shared by :func:`certify_liquid_result` (signs) and
+    :func:`verify_liquid_result` (recomputes), so a delegated result is independently auditable.
+    """
+    if poll_record.get("kind") != POLL_KIND:
+        raise ValueError(f"not a {POLL_KIND}: {poll_record.get('kind')!r}")
+    scope = poll_record["scope"]
+    poll_id = poll_record["poll_id"]
+    options = poll_record["options"]
+    opens_at = poll_record["opens_at"]
+    closes_at = poll_record["closes_at"]
+
+    in_window: List[dict] = []
+    for ballot in ballots:
+        if ballot.get("kind") != BALLOT_KIND:
+            raise ValueError(f"not a {BALLOT_KIND}: {ballot.get('kind')!r}")
+        if ballot.get("scope") != scope or ballot.get("poll_id") != poll_id:
+            raise ValueError("ballot scope/poll_id does not match the poll")
+        cast_at = ballot.get("cast_at")
+        if not isinstance(cast_at, int) or isinstance(cast_at, bool):
+            raise ValueError("ballot cast_at must be an int")
+        if not (opens_at <= cast_at < closes_at):
+            continue
+        choice = ballot.get("choice")
+        if not isinstance(choice, int) or isinstance(choice, bool) or not (0 <= choice < options):
+            raise ValueError(f"ballot choice {choice!r} out of range 0..{options - 1}")
+        in_window.append(ballot)
+
+    direct = _direct_choices(in_window)
     deleg = delegation_map(delegations)
     counts = resolve_liquid(direct, deleg, weights)
     results = [[choice, counts[choice]] for choice in sorted(counts)]
+    if results:
+        top = max(count for _choice, count in results)
+        leaders = [choice for choice, count in results if count == top]
+        winner, winner_votes, tie = min(leaders), top, len(leaders) > 1
+    else:
+        winner, winner_votes, tie = -1, 0, False
+
     record = {
         "kind": LIQUID_RESULT_KIND,
         "scope": scope,
         "poll_id": poll_id,
+        "poll_cid": canonical.cid(poll_record),
+        "authority": authority_addr,
         "results": results,
         "direct_voters": len(direct),
         "delegations": len(deleg),
         "total_weight": sum(counts.values()),
+        "winner": winner,
+        "winner_votes": winner_votes,
+        "tie": tie,
     }
     canonical.encode(record)
     return record
+
+
+def certify_liquid_result(poll_record: dict, ballots: List[dict], delegations: List[dict],
+                          authority_priv: str, weights: Dict[str, int] | None = None) -> Attestation:
+    """Sign a liquid result (only the poll's defining authority may certify it)."""
+    authority_addr = crypto.address(crypto.public_from_private(authority_priv))
+    if poll_record.get("authority") != authority_addr:
+        raise ValueError("only the defining authority may certify this liquid result")
+    record = liquid_result_record(poll_record, ballots, delegations, authority_addr, weights)
+    return attest(record, authority_priv, author_field="authority")
+
+
+def verify_liquid_result(result_record: dict, poll_record: dict, ballots: List[dict],
+                         delegations: List[dict], weights: Dict[str, int] | None = None) -> bool:
+    """True iff ``result_record`` is the honest liquid result for these inputs (recomputation)."""
+    if result_record.get("kind") != LIQUID_RESULT_KIND:
+        return False
+    if poll_record.get("authority") != result_record.get("authority"):
+        return False
+    try:
+        expected = liquid_result_record(poll_record, ballots, delegations,
+                                        result_record["authority"], weights)
+    except (ValueError, KeyError, TypeError):
+        return False
+    return expected == result_record
+
+
+def audit_liquid_result(result_att: Attestation, poll_record: dict, ballots: List[dict],
+                        delegations: List[dict], weights: Dict[str, int] | None = None) -> bool:
+    """Full audit: the liquid result is validly authority-signed AND recomputes from the inputs."""
+    return (
+        result_att.verify(author_field="authority")
+        and verify_liquid_result(result_att.record, poll_record, ballots, delegations, weights)
+    )
