@@ -43,16 +43,19 @@ class Poll:
     options: int     # valid choices are the integers 0 .. options-1
     opens_at: int    # epoch seconds (inclusive)
     closes_at: int   # epoch seconds (exclusive)
+    quorum: int = 0  # minimum distinct voters for the result to be binding (0 = no quorum)
 
     def __post_init__(self) -> None:
         for name, value in (("options", self.options), ("opens_at", self.opens_at),
-                            ("closes_at", self.closes_at)):
+                            ("closes_at", self.closes_at), ("quorum", self.quorum)):
             if not isinstance(value, int) or isinstance(value, bool):
                 raise TypeError(f"poll {name} must be an int")
         if self.options < 2:
             raise ValueError("a poll needs at least 2 options")
         if self.closes_at <= self.opens_at:
             raise ValueError("closes_at must be after opens_at")
+        if self.quorum < 0:
+            raise ValueError("quorum must be >= 0")
         if not self.poll_id:
             raise ValueError("poll_id must be non-empty")
 
@@ -79,6 +82,7 @@ class VbankPoll:
             "options": poll.options,
             "opens_at": poll.opens_at,
             "closes_at": poll.closes_at,
+            "quorum": poll.quorum,
             "authority": self.authority,
         }
         canonical.encode(record)
@@ -116,15 +120,33 @@ class VbankPoll:
             in_window.append(ballot)
 
         counted = tally(scope, poll_id, in_window)
+        results = counted["results"]
+        total_voters = counted["total_voters"]
+
+        # Outcome: plurality winner with a deterministic smallest-option-id tie-break.
+        if results:
+            top = max(count for _choice, count in results)
+            leaders = [choice for choice, count in results if count == top]
+            winner, winner_votes, tie = min(leaders), top, len(leaders) > 1
+        else:
+            winner, winner_votes, tie = -1, 0, False
+        quorum = poll_record.get("quorum", 0)
+        quorum_met = total_voters >= quorum
+
         record = {
             "kind": RESULT_KIND,
             "scope": scope,
             "poll_id": poll_id,
             "poll_cid": canonical.cid(poll_record),
             "authority": self.authority,
-            "total_voters": counted["total_voters"],
-            "results": counted["results"],
+            "total_voters": total_voters,
+            "results": results,
             "ballot_root": counted["ballot_root"],
+            "quorum": quorum,
+            "quorum_met": quorum_met,
+            "winner": winner,
+            "winner_votes": winner_votes,
+            "tie": tie,
         }
         canonical.encode(record)
         return attest(record, self._priv, author_field="authority")

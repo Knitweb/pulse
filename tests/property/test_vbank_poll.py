@@ -35,9 +35,9 @@ def _ballot(nullifier: str, choice: int, seq: int = 0, cast_at: int = 1500) -> d
     }
 
 
-def _poll(authority: VbankPoll, options: int = 3):
+def _poll(authority: VbankPoll, options: int = 3, quorum: int = 0):
     return authority.define(Poll(scope=SCOPE, poll_id=POLL_ID, options=options,
-                                 opens_at=1000, closes_at=2000))
+                                 opens_at=1000, closes_at=2000, quorum=quorum))
 
 
 @pytest.mark.property
@@ -45,6 +45,7 @@ def _poll(authority: VbankPoll, options: int = 3):
     {"options": 1, "opens_at": 0, "closes_at": 10},   # too few options
     {"options": 3, "opens_at": 10, "closes_at": 10},  # window not positive
     {"options": 3, "opens_at": 10, "closes_at": 5},   # closes before opens
+    {"options": 3, "opens_at": 0, "closes_at": 10, "quorum": -1},  # negative quorum
 ])
 def test_invalid_poll_definitions_rejected(bad):
     with pytest.raises((ValueError, TypeError)):
@@ -128,6 +129,48 @@ def test_out_of_window_revote_does_not_override_in_window_vote():
     res = authority.certify_result(poll_att.record, ballots)
     assert res.record["total_voters"] == 1
     assert res.record["results"] == [[0, 1]]  # the in-window choice 0 stands
+
+
+@pytest.mark.property
+def test_quorum_met_and_not_met():
+    priv, authority = _authority()
+    ballots = [_ballot(_nf(0), 0), _ballot(_nf(1), 1), _ballot(_nf(2), 0)]  # 3 voters
+
+    met = authority.certify_result(_poll(authority, options=3, quorum=2).record, ballots)
+    assert met.record["quorum"] == 2 and met.record["quorum_met"] is True
+
+    not_met = authority.certify_result(_poll(authority, options=3, quorum=5).record, ballots)
+    assert not_met.record["quorum"] == 5 and not_met.record["quorum_met"] is False
+
+
+@pytest.mark.property
+def test_plurality_winner_and_tie_break():
+    priv, authority = _authority()
+    poll = _poll(authority, options=3)
+    # choices: two for option 0, one for option 2 -> winner 0
+    res = authority.certify_result(poll.record, [_ballot(_nf(0), 0), _ballot(_nf(1), 0), _ballot(_nf(2), 2)])
+    assert res.record["winner"] == 0 and res.record["winner_votes"] == 2 and res.record["tie"] is False
+
+
+@pytest.mark.property
+def test_tie_resolves_to_smallest_option_and_flags_tie():
+    priv, authority = _authority()
+    poll = _poll(authority, options=3)
+    res = authority.certify_result(poll.record, [_ballot(_nf(0), 2), _ballot(_nf(1), 1)])  # 1 vs 1
+    assert res.record["winner"] == 1          # smallest option among the tied leaders
+    assert res.record["winner_votes"] == 1
+    assert res.record["tie"] is True
+
+
+@pytest.mark.property
+def test_no_votes_has_no_winner():
+    priv, authority = _authority()
+    poll = _poll(authority, options=3, quorum=1)
+    res = authority.certify_result(poll.record, [])
+    assert res.record["winner"] == -1
+    assert res.record["winner_votes"] == 0
+    assert res.record["tie"] is False
+    assert res.record["quorum_met"] is False   # 0 voters < quorum 1
 
 
 @pytest.mark.property
