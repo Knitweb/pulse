@@ -4,7 +4,8 @@ Status: **design / RFC** (no code). The merged crowdfunding stack produces a sig
 `crowdfunding-settlement` instruction and a *local* executor (`execute_settlement`) that moves
 PLS escrow→payee when **both accounts are in one process**. This document designs the
 **distributed** execution — escrow and payees on different nodes — which is the remaining real
-piece. It needs owner decisions on the custody/liveness model before implementation.
+piece. The MVP owner decisions are fixed below, so this RFC can move from blocked design to
+implementation-ready design.
 
 ## The constraint that shapes everything
 
@@ -70,18 +71,25 @@ refunds work (claim/refund-on-demand). Release (goal met) can use Model A (singl
 `crowdfunding/campaign.py` (`settlement_entries`, `audit_settlement`). The escrow's
 `(settlement_cid → progress)` and `claimed` sets persist via `store.py`.
 
-## Owner decisions needed before building
+## Owner decisions for the MVP
 
-1. **Custody** — is the escrow a protocol account the campaign authority controls, a multi-sig, or
-   a neutral service? (Determines who can co-sign payouts.)
-2. **Refund model** — Model B (payee-pull/claim) vs Model A (escrow-push) for refunds.
-3. **Liveness/forfeiture** — what happens to unclaimed refunds after the window (indefinite claim,
-   expiry to a pool, return-to-treasury)?
-4. **Fees** — does settlement deduct a protocol/relayer fee per payout?
+1. **Custody** — use a neutral protocol escrow service account for the MVP. The escrow signs only
+   entries that are present in an audited settlement; campaign authorities do not directly custody
+   refund or release funds once pledged.
+2. **Refund model** — use Model B (payee-pull / claim) for refunds. Refund recipients claim when
+   they are online; the system does not require all payees to be reachable at once.
+3. **Liveness/forfeiture** — unclaimed refunds remain claimable indefinitely for the MVP. Expiry,
+   forfeiture, return-to-treasury, or pool redistribution are explicit future policy extensions,
+   not default settlement behavior.
+4. **Fees** — no protocol or relayer fee in the MVP settlement path. Fees can be added later as
+   explicit audited settlement entries, so they are visible in `settlement_root` and do not change
+   the core refund/release handshake.
 
 ## Phasing
 
-- **Phase 1** — Model A escrow-push with a persisted resume cursor + claim-once dedup, tested with
-  in-process nodes simulating the two phases separately (extends the current executor tests).
-- **Phase 2** — Model B claim endpoint + wire messages over `p2p`, with an offline-payee test.
-- **Phase 3** — forfeiture/expiry policy + fees, per the owner decisions above.
+- **Phase 1** — neutral protocol escrow service + Model A escrow-push for successful release
+  payouts, with a persisted resume cursor and claim-once dedup.
+- **Phase 2** — Model B refund claim endpoint + wire messages over `p2p`, with an offline-payee
+  test proving refunds remain claimable when recipients come online later.
+- **Phase 3** — optional policy extensions: expiry/forfeiture, return-to-treasury, redistribution
+  pools, and protocol/relayer fees as explicit audited settlement entries.
