@@ -84,3 +84,19 @@ def verify_record(
     if record.get(author_field) != expected:
         return False
     return crypto.verify(author_pub, message, sig)
+
+
+def node_is_attested(web: object, node_cid: str) -> bool:
+    """Return whether ``node_cid`` is acceptable for relation-gating.
+
+    ``Web`` currently stores records, while signatures live in separate
+    :class:`Attestation` envelopes. Until explicit per-node envelopes are attached to the
+    graph, legacy nodes are accepted by graph membership; callers such as the distill gate
+    layer this with provenance and acyclicity checks.
+    """
+    if not isinstance(node_cid, str) or not node_cid:
+        return False
+    nodes = getattr(web, "nodes", None)
+    if not isinstance(nodes, dict):
+        return False
+    return node_cid in nodes
