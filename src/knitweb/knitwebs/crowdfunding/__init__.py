@@ -42,7 +42,7 @@ from .campaign import (
     verify_outcome,
     verify_settlement,
 )
-from .settlement import EscrowError, execute_settlement
+from .settlement import EscrowError, SettlementSession, execute_settlement, validate_payout
 
 __all__ = [
     "Pledge", "CrowdfundingKnitweb", "PLEDGE_KIND",
@@ -50,6 +50,7 @@ __all__ = [
     "verify_outcome", "audit_outcome", "verify_settlement", "audit_settlement",
     "settlement_entries", "collect_pledges", "execute_settlement", "EscrowError",
     "collect_campaigns", "campaign_status", "is_campaign_open",
+    "validate_payout", "SettlementSession",
 ]
 
 
