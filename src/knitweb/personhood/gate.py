@@ -115,13 +115,19 @@ def require_personhood(
     if not anchor_index.is_registered(scope, admission.scope_nullifier):
         raise NotPersonError("no personhood anchor for this scope (enroll first)")
 
-    if not (admission.not_before <= now < admission.not_after):
-        raise ExpiredError(
-            f"now={now} outside validity [{admission.not_before}, {admission.not_after})"
-        )
+    # The authoritative validity window + revocation pointer come from the committed
+    # on-fabric anchor, NEVER from the (holder-controlled) presentation — otherwise a holder
+    # could re-present the same secret with a forged wider window and vote past expiry.
+    stored = anchor_index.anchor(scope, admission.scope_nullifier)
+    if admission.holder_pairwise != stored["holder_pairwise"]:
+        raise NotPersonError("presentation does not match the stored anchor")
+
+    not_before, not_after = stored["not_before"], stored["not_after"]
+    if not (not_before <= now < not_after):
+        raise ExpiredError(f"now={now} outside validity [{not_before}, {not_after})")
 
     if revocation is not None:
-        revocation_pointer = anchor_index.revocation_pointer(scope, admission.scope_nullifier)
+        revocation_pointer = stored["revocation_pointer"]
         try:
             commitment, proof = revocation.prove_non_revocation(revocation_pointer, epoch)
         except KeyError as exc:  # pointer IS in the revoked set
@@ -134,6 +140,6 @@ def require_personhood(
         scope_nullifier=admission.scope_nullifier,
         pairwise_did=admission.pairwise_did,
         holder_pairwise=admission.holder_pairwise,
-        not_before=admission.not_before,
-        not_after=admission.not_after,
+        not_before=not_before,
+        not_after=not_after,
     )

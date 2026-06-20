@@ -90,6 +90,27 @@ def test_scope_a_signature_does_not_verify_under_scope_b_did():
 
 
 @pytest.mark.property
+def test_pairwise_rejection_samples_out_of_range_scalar(monkeypatch):
+    # Force the ~2^-128 edge: first digest is the curve order (invalid scalar) -> must retry.
+    from knitweb.personhood import pairwise as pw
+
+    n = pw._SECP256K1_ORDER
+    calls = {"i": 0}
+    real = crypto.sha256
+
+    def fake(data):
+        calls["i"] += 1
+        if calls["i"] == 1:
+            return n.to_bytes(32, "big")  # == order: not a valid scalar, forces a retry
+        return real(data)
+
+    monkeypatch.setattr(pw.crypto, "sha256", fake)
+    priv, _pub = pw.derive_pairwise_keypair(b"\x07" * 32, "votebank")
+    assert 0 < int(priv, 16) < n
+    assert calls["i"] >= 2  # it rehashed past the invalid scalar
+
+
+@pytest.mark.property
 def test_nullifier_and_pairwise_compose_into_a_valid_anchor():
     # End-to-end: holder derivations feed straight into the anchor schema.
     verifier_priv, verifier_pub = crypto.generate_keypair()

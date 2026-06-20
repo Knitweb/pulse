@@ -40,10 +40,14 @@ class CoSignedAnchor:
         return canonical.cid(self.record)
 
     def verify(self) -> bool:
-        """True iff both signatures are valid over the *same* record."""
+        """True iff two *distinct* keys validly signed the *same* record."""
         if self.verifier_att.record != self.record:
             return False
         if self.holder_att.record != self.record:
+            return False
+        # Defense-in-depth alongside the schema check: the verifier and holder must be
+        # two different keys (a single self-co-signed key would not prove holder consent).
+        if self.verifier_att.author_pub == self.holder_att.author_pub:
             return False
         return self.verifier_att.verify("verifier") and self.holder_att.verify(
             "holder_pairwise"

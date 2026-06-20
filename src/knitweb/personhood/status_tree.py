@@ -177,11 +177,46 @@ class StatusTree:
 # Verification — against an authority-committed (signed) (root, length)
 # ---------------------------------------------------------------------------
 
+def _expected_height(length: int) -> int:
+    """Path length (tree height) for a duplicate-last Merkle tree of ``length`` leaves."""
+    height = 0
+    n = length
+    while n > 1:
+        n += n % 2  # duplicate the last node on an odd level
+        n //= 2
+        height += 1
+    return height
+
+
+def _index_from_path(path: List[Tuple[str, bool]]) -> int:
+    """Recover the leaf position the sibling path commits to, from its direction bits.
+
+    At level ``i`` the prover is the *right* child (bit set) exactly when its sibling sits
+    on the *left* (``sib_is_right`` is False). This makes the index a function of the path,
+    so it cannot be relabelled independently of the proof.
+    """
+    recovered = 0
+    for i, (_sibling_hex, sib_is_right) in enumerate(path):
+        if not sib_is_right:
+            recovered |= (1 << i)
+    return recovered
+
+
 def verify_membership(root_hex: str, length: int, proof: MembershipProof) -> bool:
-    """True iff ``proof`` shows its pointer is committed at its index in (root, length)."""
+    """True iff ``proof`` shows its pointer is committed at its index in (root, length).
+
+    Critically, the claimed ``index`` is **bound to the path**: the path length must equal
+    the committed tree height and the index recovered from the path's direction bits must
+    equal ``proof.index``. Without this binding the index is decorative, and a non-membership
+    adjacency proof could be forged by relabelling the indices of genuine bracketing proofs.
+    """
     if proof.length != length:
         return False
     if not 0 <= proof.index < length:
+        return False
+    if len(proof.path) != _expected_height(length):
+        return False
+    if _index_from_path(proof.path) != proof.index:
         return False
     try:
         leaf = _leaf(_as_pointer(proof.pointer))

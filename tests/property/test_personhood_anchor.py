@@ -152,6 +152,26 @@ def test_anchor_cid_is_field_order_independent():
 
 
 @pytest.mark.property
+def test_verifier_and_holder_must_be_distinct_keys():
+    # A self-co-signed anchor (one key in both roles) would not prove holder consent.
+    priv, pub = crypto.generate_keypair()
+    addr = crypto.address(pub)
+    with pytest.raises(PersonhoodSchemaError):
+        build_anchor_record(
+            verifier=addr,
+            holder_pairwise=addr,  # same key for both roles -> refused at the schema layer
+            issuer_trust_anchor=_hex32(b"a"),
+            issuer_class=ISSUER_CLASS_EUDI_PID,
+            scope="votebank",
+            scope_nullifier=_hex32(b"n"),
+            not_before=1,
+            not_after=2,
+            revocation_pointer=_hex32(b"r"),
+            proof_digest=_hex32(b"p"),
+        )
+
+
+@pytest.mark.property
 def test_revoke_record_round_trips_and_rejects_pii():
     verifier_priv, verifier_pub = crypto.generate_keypair()
     revoke = records.build_revoke_record(

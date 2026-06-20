@@ -94,6 +94,14 @@ def test_zk_backend_is_dependency_gated():
 
 
 @pytest.mark.property
+def test_constructor_rejects_unknown_issuer_class():
+    with pytest.raises(ValueError):
+        TrustedRPVerifier({crypto.sha256(b"x").hex(): 99})
+    with pytest.raises(ValueError):
+        TrustedRPVerifier.from_issuer_entries({b"x": 99})
+
+
+@pytest.mark.property
 def test_admission_bridges_into_a_co_signed_anchor():
     secret = new_holder_secret()
     verifier_priv, _ = crypto.generate_keypair()

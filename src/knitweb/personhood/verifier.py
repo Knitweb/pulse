@@ -98,7 +98,11 @@ class TrustedRPVerifier:
 
     def __init__(self, trust_registry: Dict[str, int] | None = None) -> None:
         # issuer_trust_anchor (sha256(entry) hex) -> issuer_class
-        self._registry: Dict[str, int] = dict(trust_registry or {})
+        registry: Dict[str, int] = dict(trust_registry or {})
+        for anchor_hex, issuer_class in registry.items():
+            if issuer_class not in records.KNOWN_ISSUER_CLASSES:
+                raise ValueError(f"unknown issuer_class {issuer_class} for {anchor_hex}")
+        self._registry = registry
 
     @classmethod
     def from_issuer_entries(cls, entries: Dict[bytes, int]) -> "TrustedRPVerifier":

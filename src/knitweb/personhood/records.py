@@ -165,6 +165,11 @@ def _require_nonempty_str(record: dict, key: str) -> str:
 def _validate_anchor(record: dict) -> None:
     _require_address(record, "verifier")
     holder = _require_address(record, "holder_pairwise")
+    # Two distinct signers are the whole point of the co-signature (verifier RP + a human
+    # holder). If one key could fill both roles, a colluding RP could mint consent-less
+    # anchors. Refuse it at the schema layer so construction and verification both reject it.
+    if record["verifier"] == holder:
+        raise PersonhoodSchemaError("verifier and holder_pairwise must be distinct keys")
     if record["cred_type"] != CRED_TYPE:
         raise PersonhoodSchemaError(f"cred_type must be {CRED_TYPE!r}")
     _require_hex32(record, "issuer_trust_anchor")

@@ -100,6 +100,18 @@ def test_outside_validity_window_is_expired(now):
 
 
 @pytest.mark.property
+def test_forged_wider_presentation_window_cannot_outlive_the_anchor():
+    # Expiry must come from the stored anchor, not the holder-controlled presentation.
+    verifier, rp_priv, index = _setup()
+    secret = new_holder_secret()
+    _enroll(verifier, rp_priv, index, secret)  # enrolled with window [1000, 2000)
+    # holder re-presents the SAME secret (same nullifier) but a forged, much wider window
+    forged = _presentation(secret, nb=0, na=1_000_000)
+    with pytest.raises(ExpiredError):
+        require_personhood(SCOPE, forged, verifier=verifier, anchor_index=index, now=5000)
+
+
+@pytest.mark.property
 def test_revoked_anchor_is_rejected_but_unrevoked_passes():
     verifier, rp_priv, index = _setup()
     revlog = RevocationLog(rp_priv, scope=SCOPE)
