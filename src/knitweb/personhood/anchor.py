@@ -17,12 +17,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..core import canonical
+from ..core import canonical, crypto
 from ..fabric.attest import Attestation, attest
 from ..fabric.web import Web
 from . import records
+from .verifier import Admission
 
-__all__ = ["CoSignedAnchor", "co_sign_anchor"]
+__all__ = ["CoSignedAnchor", "co_sign_anchor", "anchor_from_admission"]
 
 
 @dataclass(frozen=True)
@@ -70,3 +71,35 @@ def co_sign_anchor(
     return CoSignedAnchor(
         record=record, verifier_att=verifier_att, holder_att=holder_att
     )
+
+
+def anchor_from_admission(
+    admission: Admission,
+    verifier_priv: str,
+    holder_pairwise_priv: str,
+    *,
+    revocation_pointer: str,
+) -> CoSignedAnchor:
+    """Build and co-sign a personhood-anchor from a verified :class:`Admission`.
+
+    ``revocation_pointer`` is a fresh **random** 32-byte-hex commitment (generate it with
+    ``crypto.sha256(os.urandom(32)).hex()`` or equivalent). It is deliberately decoupled
+    from the nullifier: the RP keeps the (pointer ↔ anchor) mapping off-fabric so it can
+    revoke later, but the pointer reveals nothing about the person.
+    """
+    record = records.build_anchor_record(
+        verifier=crypto.address(crypto.public_from_private(verifier_priv)),
+        holder_pairwise=admission.holder_pairwise,
+        issuer_trust_anchor=admission.issuer_trust_anchor,
+        issuer_class=admission.issuer_class,
+        scope=admission.scope,
+        scope_nullifier=admission.scope_nullifier,
+        not_before=admission.not_before,
+        not_after=admission.not_after,
+        revocation_pointer=revocation_pointer,
+        proof_digest=admission.proof_digest,
+        nullifier_scheme=admission.nullifier_scheme,
+        key_scheme=admission.key_scheme,
+        pairwise_did=admission.pairwise_did,
+    )
+    return co_sign_anchor(record, verifier_priv, holder_pairwise_priv)

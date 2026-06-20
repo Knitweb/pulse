@@ -13,8 +13,22 @@ constants.
 
 from __future__ import annotations
 
-from . import anchor, nullifier, pairwise, records, revocation, status_tree
-from .anchor import CoSignedAnchor, co_sign_anchor
+from . import anchor, errors, nullifier, pairwise, records, revocation, status_tree, verifier
+from .anchor import CoSignedAnchor, anchor_from_admission, co_sign_anchor
+from .errors import (
+    AlreadyRegisteredError,
+    ExpiredError,
+    NotPersonError,
+    PersonhoodError,
+    RevokedError,
+)
+from .verifier import (
+    Admission,
+    Presentation,
+    PresentationVerifier,
+    TrustedRPVerifier,
+    ZkVerifier,
+)
 from .nullifier import new_holder_secret, scope_nullifier
 from .pairwise import derive_pairwise_keypair, pairwise_address, pairwise_did
 from .status_tree import (
@@ -59,6 +73,19 @@ __all__ = [
     "build_revoke_record",
     "CoSignedAnchor",
     "co_sign_anchor",
+    "anchor_from_admission",
+    "errors",
+    "verifier",
+    "PersonhoodError",
+    "NotPersonError",
+    "AlreadyRegisteredError",
+    "RevokedError",
+    "ExpiredError",
+    "Admission",
+    "Presentation",
+    "PresentationVerifier",
+    "TrustedRPVerifier",
+    "ZkVerifier",
     "new_holder_secret",
     "scope_nullifier",
     "derive_pairwise_keypair",
