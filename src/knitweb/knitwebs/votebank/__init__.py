@@ -1,0 +1,94 @@
+"""Votebank (minimal stub) — a vote is impossible without a personhood ticket.
+
+This is *not* the full Votebank app (that is Step 5 of the adoption roadmap). It is the
+smallest domain knitweb that proves the personhood foundation is consumed as a gate rather
+than bolted on: :meth:`VotebankKnitweb.emit` refuses to produce a ballot unless it is handed
+a :class:`~knitweb.personhood.gate.PersonhoodTicket` that matches the ballot's scope, voter,
+and nullifier. The dependency points one way — votebank imports ``personhood``, never the
+reverse.
+
+A ballot record carries the **scope nullifier** (the one-person-one-vote dedup key) and the
+voter's **pairwise** address, but **no identity** — the same anti-PII property the anchor
+enforces. The ballot is signed by the holder's pairwise key, so the *content* signature is
+decoupled from the *authorisation* ticket (the receipt-freeness / ZK seam).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from ...core import crypto
+from ...fabric.attest import Attestation, attest
+from ...fabric.web import Web
+from ...personhood.gate import PersonhoodTicket
+from ..base import assert_domain_record_shape
+
+__all__ = ["Ballot", "VotebankKnitweb"]
+
+
+@dataclass(frozen=True)
+class Ballot:
+    """One vote: an integer ``choice`` in a poll, cast by a scope-pairwise voter."""
+
+    scope: str
+    poll_id: str
+    choice: int          # option index (integer-only, canonical-safe)
+    voter: str           # pls1 address of the holder's pairwise key
+    scope_nullifier: str # one-person-one-vote dedup key (no identity)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.choice, int) or isinstance(self.choice, bool):
+            raise TypeError("ballot choice must be an int")
+
+
+class VotebankKnitweb:
+    """Emits signed ballots — but only against a valid personhood ticket."""
+
+    KIND = "votebank-ballot"
+
+    def __init__(self, scope: str) -> None:
+        if not scope:
+            raise ValueError("scope must be a non-empty string")
+        self.scope = scope
+
+    def _check_ticket(self, ballot: Ballot, ticket: PersonhoodTicket) -> None:
+        if ballot.scope != self.scope:
+            raise ValueError(f"ballot scope {ballot.scope!r} != knitweb scope {self.scope!r}")
+        if not isinstance(ticket, PersonhoodTicket):
+            raise TypeError("a PersonhoodTicket is required to cast a ballot")
+        if ticket.scope != ballot.scope:
+            raise ValueError("ticket scope does not match the ballot")
+        if ticket.scope_nullifier != ballot.scope_nullifier:
+            raise ValueError("ticket nullifier does not authorise this ballot")
+        if ticket.holder_pairwise != ballot.voter:
+            raise ValueError("ticket holder does not match the ballot voter")
+
+    def to_record(self, ballot: Ballot, ticket: PersonhoodTicket) -> dict:
+        """Build the integer-only ballot record (gated on a matching ticket)."""
+        self._check_ticket(ballot, ticket)
+        record = {
+            "kind": self.KIND,
+            "scope": ballot.scope,
+            "poll_id": ballot.poll_id,
+            "choice": ballot.choice,
+            "actor": ballot.voter,
+            "scope_nullifier": ballot.scope_nullifier,
+        }
+        assert_domain_record_shape(record, kind=self.KIND, author_field="actor")
+        return record
+
+    def emit(self, ballot: Ballot, ticket: PersonhoodTicket, voter_priv: str) -> Attestation:
+        """Validate the ticket, then sign the ballot with the holder's pairwise key.
+
+        The pairwise public key must match ``ballot.voter`` (``attest`` enforces this), so a
+        ballot is bound to the same scope identity the ticket authorised.
+        """
+        record = self.to_record(ballot, ticket)
+        return attest(record, voter_priv, author_field="actor")
+
+    def weave(
+        self, ballot: Ballot, ticket: PersonhoodTicket, voter_priv: str, web: Web
+    ) -> tuple[str, Attestation]:
+        """Emit a gated ballot and weave it into ``web``; return (cid, attestation)."""
+        att = self.emit(ballot, ticket, voter_priv)
+        return web.weave(att.record), att
