@@ -215,6 +215,15 @@ def test_settlement_audit_detects_tamper_and_mismatch():
 
 
 @pytest.mark.property
+def test_verify_outcome_and_settlement_reject_non_dict():
+    priv, authority = _authority()
+    campaign = _campaign(authority, goal=100, beneficiary=BENEFICIARY)
+    assert verify_outcome([1, 2], campaign.record, []) is False
+    assert verify_outcome({"kind": OUTCOME_KIND}, "not-a-dict", []) is False
+    assert verify_settlement("x", {"kind": OUTCOME_KIND}, campaign.record, []) is False
+
+
+@pytest.mark.property
 def test_outcome_is_order_independent():
     priv, authority = _authority()
     campaign = _campaign(authority, goal=500)

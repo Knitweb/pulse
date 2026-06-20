@@ -177,6 +177,8 @@ def _outcome_record(campaign_record: dict, pledges: list[dict], authority_addr: 
 def verify_outcome(outcome_record: dict, campaign_record: dict, pledges: list[dict]) -> bool:
     """True iff ``outcome_record`` is exactly what an honest authority certifies from
     ``campaign_record`` + ``pledges`` (independent recomputation; not a signature check)."""
+    if not isinstance(outcome_record, dict) or not isinstance(campaign_record, dict):
+        return False
     if outcome_record.get("kind") != OUTCOME_KIND:
         return False
     if campaign_record.get("authority") != outcome_record.get("authority"):
@@ -256,6 +258,8 @@ def verify_settlement(settlement_record: dict, outcome_record: dict, campaign_re
                       pledges: list[dict]) -> bool:
     """True iff ``settlement_record`` is exactly the honest settlement for this
     (outcome, campaign, pledges) — independent recomputation; not a signature check."""
+    if not isinstance(settlement_record, dict) or not isinstance(campaign_record, dict):
+        return False
     if settlement_record.get("kind") != SETTLEMENT_KIND:
         return False
     if campaign_record.get("authority") != settlement_record.get("authority"):

@@ -68,8 +68,19 @@ def verify_record(
     author_field: str = "author",
 ) -> bool:
     """Verify that ``record`` was signed by the holder of ``author_pub`` and that
-    the record's author/provider address matches that key."""
-    claimed = record.get(author_field)
-    if claimed != crypto.address(author_pub):
+    the record's author/provider address matches that key.
+
+    Defensive: returns ``False`` (never raises) on a non-dict record or a malformed
+    ``author_pub`` (e.g. non-hex / wrong length), so callers using it in a boolean/audit
+    context — including every ``audit_*`` over attacker-supplied wire envelopes — get a clean
+    reject instead of a ValueError. (``crypto.verify`` already swallows a bad signature hex.)"""
+    if not isinstance(record, dict):
         return False
-    return crypto.verify(author_pub, canonical.encode(record), sig)
+    try:
+        expected = crypto.address(author_pub)
+        message = canonical.encode(record)
+    except (ValueError, TypeError):
+        return False
+    if record.get(author_field) != expected:
+        return False
+    return crypto.verify(author_pub, message, sig)
