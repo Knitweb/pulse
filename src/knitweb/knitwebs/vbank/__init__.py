@@ -39,9 +39,13 @@ from .ranked import (
     RANKED_BALLOT_KIND,
     RANKED_RESULT_KIND,
     RankedBallot,
+    audit_ranked_result,
+    certify_ranked_result,
     collect_ranked_ballots,
     emit_ranked_ballot,
     instant_runoff,
+    ranked_result_record,
+    verify_ranked_result,
 )
 from .tally import BALLOT_KIND, TALLY_KIND, collect_ballots, tally
 
@@ -53,6 +57,7 @@ __all__ = [
     "verify_liquid_result", "audit_liquid_result",
     "DELEGATION_KIND", "LIQUID_RESULT_KIND",
     "RankedBallot", "emit_ranked_ballot", "collect_ranked_ballots", "instant_runoff",
+    "ranked_result_record", "certify_ranked_result", "verify_ranked_result", "audit_ranked_result",
     "RANKED_BALLOT_KIND", "RANKED_RESULT_KIND",
 ]
 

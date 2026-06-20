@@ -21,6 +21,7 @@ from ...core import canonical, crypto
 from ...fabric.attest import Attestation, attest
 from ...fabric.web import Web
 from ...personhood.gate import PersonhoodTicket
+from .poll import POLL_KIND
 
 __all__ = [
     "RANKED_BALLOT_KIND",
@@ -29,6 +30,10 @@ __all__ = [
     "emit_ranked_ballot",
     "collect_ranked_ballots",
     "instant_runoff",
+    "ranked_result_record",
+    "certify_ranked_result",
+    "verify_ranked_result",
+    "audit_ranked_result",
 ]
 
 RANKED_BALLOT_KIND = "vbank-ranked-ballot"
@@ -176,7 +181,6 @@ def instant_runoff(ballots: List[dict], options: int,
         eliminated.add(loser)
 
     record = {
-        "kind": RANKED_RESULT_KIND,
         "options": options,
         "voters": len(rankings),
         "rounds": rounds,
@@ -185,3 +189,79 @@ def instant_runoff(ballots: List[dict], options: int,
     }
     canonical.encode(record)
     return record
+
+
+def _in_window_ranked(poll_record: dict, ballots: List[dict]) -> List[dict]:
+    """Ranked ballots cast inside the poll's window (option-range is checked at tally time)."""
+    if poll_record.get("kind") != POLL_KIND:
+        raise ValueError(f"not a {POLL_KIND}: {poll_record.get('kind')!r}")
+    scope = poll_record["scope"]
+    poll_id = poll_record["poll_id"]
+    opens_at = poll_record["opens_at"]
+    closes_at = poll_record["closes_at"]
+    in_window: List[dict] = []
+    for ballot in ballots:
+        if ballot.get("kind") != RANKED_BALLOT_KIND:
+            raise ValueError(f"not a {RANKED_BALLOT_KIND}: {ballot.get('kind')!r}")
+        if ballot.get("scope") != scope or ballot.get("poll_id") != poll_id:
+            raise ValueError("ballot scope/poll_id does not match the poll")
+        cast_at = ballot.get("cast_at")
+        if not isinstance(cast_at, int) or isinstance(cast_at, bool):
+            raise ValueError("ballot cast_at must be an int")
+        if opens_at <= cast_at < closes_at:
+            in_window.append(ballot)
+    return in_window
+
+
+def ranked_result_record(poll_record: dict, ballots: List[dict], authority_addr: str,
+                         weights: Dict[str, int] | None = None) -> dict:
+    """The deterministic ``vbank-ranked-result`` record — pure, unsigned, poll-linked."""
+    in_window = _in_window_ranked(poll_record, ballots)
+    irv = instant_runoff(in_window, poll_record["options"], weights)
+    record = {
+        "kind": RANKED_RESULT_KIND,
+        "scope": poll_record["scope"],
+        "poll_id": poll_record["poll_id"],
+        "poll_cid": canonical.cid(poll_record),
+        "authority": authority_addr,
+        "options": irv["options"],
+        "voters": irv["voters"],
+        "rounds": irv["rounds"],
+        "winner": irv["winner"],
+        "winner_round": irv["winner_round"],
+    }
+    canonical.encode(record)
+    return record
+
+
+def certify_ranked_result(poll_record: dict, ballots: List[dict], authority_priv: str,
+                          weights: Dict[str, int] | None = None) -> Attestation:
+    """Sign a ranked (IRV) result (only the poll's defining authority may certify it)."""
+    authority_addr = crypto.address(crypto.public_from_private(authority_priv))
+    if poll_record.get("authority") != authority_addr:
+        raise ValueError("only the defining authority may certify this ranked result")
+    record = ranked_result_record(poll_record, ballots, authority_addr, weights)
+    return attest(record, authority_priv, author_field="authority")
+
+
+def verify_ranked_result(result_record: dict, poll_record: dict, ballots: List[dict],
+                         weights: Dict[str, int] | None = None) -> bool:
+    """True iff ``result_record`` is the honest IRV result for these inputs (recomputation)."""
+    if result_record.get("kind") != RANKED_RESULT_KIND:
+        return False
+    if poll_record.get("authority") != result_record.get("authority"):
+        return False
+    try:
+        expected = ranked_result_record(poll_record, ballots, result_record["authority"], weights)
+    except (ValueError, KeyError, TypeError):
+        return False
+    return expected == result_record
+
+
+def audit_ranked_result(result_att: Attestation, poll_record: dict, ballots: List[dict],
+                        weights: Dict[str, int] | None = None) -> bool:
+    """Full audit: the ranked result is validly authority-signed AND recomputes from the inputs."""
+    return (
+        result_att.verify(author_field="authority")
+        and verify_ranked_result(result_att.record, poll_record, ballots, weights)
+    )

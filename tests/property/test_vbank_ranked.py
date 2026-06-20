@@ -6,10 +6,15 @@ from knitweb.core import crypto
 from knitweb.knitwebs.vbank import (
     RANKED_BALLOT_KIND,
     RANKED_RESULT_KIND,
+    Poll,
     RankedBallot,
+    VbankPoll,
+    audit_ranked_result,
+    certify_ranked_result,
     collect_ranked_ballots,
     emit_ranked_ballot,
     instant_runoff,
+    verify_ranked_result,
 )
 from knitweb.fabric.web import Web
 from knitweb.personhood.gate import PersonhoodTicket
@@ -37,7 +42,6 @@ def _total(round_entry) -> int:
 def test_first_round_majority_wins():
     ballots = [_rb(_nf("a"), [0, 1]), _rb(_nf("b"), [0, 2]), _rb(_nf("c"), [1, 0])]
     res = instant_runoff(ballots, options=3)
-    assert res["kind"] == RANKED_RESULT_KIND
     assert res["winner"] == 0 and res["winner_round"] == 0
     assert res["voters"] == 3
 
@@ -103,6 +107,42 @@ def test_invalid_ranking_rejected(bad):
 def test_out_of_range_option_rejected_by_tally():
     with pytest.raises(ValueError):
         instant_runoff([_rb(_nf("a"), [5])], options=3)  # option 5 not in 0..2
+
+
+@pytest.mark.property
+def test_certified_ranked_result():
+    authority_priv, _ = crypto.generate_keypair()
+    poll = VbankPoll(authority_priv, SCOPE).define(
+        Poll(scope=SCOPE, poll_id=POLL, options=3, opens_at=0, closes_at=10))
+    ballots = [_rb(_nf("a"), [0]), _rb(_nf("b"), [0]), _rb(_nf("c"), [1])]
+    att = certify_ranked_result(poll.record, ballots, authority_priv)
+    assert att.verify(author_field="authority")
+    assert att.record["kind"] == RANKED_RESULT_KIND
+    assert att.record["winner"] == 0
+    assert att.record["poll_cid"]
+    assert audit_ranked_result(att, poll.record, ballots)
+    # a different ballot set must not verify
+    assert not verify_ranked_result(att.record, poll.record, ballots[:1])
+
+
+@pytest.mark.property
+def test_certified_ranked_excludes_out_of_window():
+    authority_priv, _ = crypto.generate_keypair()
+    poll = VbankPoll(authority_priv, SCOPE).define(
+        Poll(scope=SCOPE, poll_id=POLL, options=2, opens_at=0, closes_at=10))
+    ballots = [_rb(_nf("a"), [0]), dict(_rb(_nf("b"), [1]), cast_at=999)]  # b out of window
+    att = certify_ranked_result(poll.record, ballots, authority_priv)
+    assert att.record["voters"] == 1 and att.record["winner"] == 0
+
+
+@pytest.mark.property
+def test_only_authority_certifies_ranked():
+    authority_priv, _ = crypto.generate_keypair()
+    other_priv, _ = crypto.generate_keypair()
+    poll = VbankPoll(authority_priv, SCOPE).define(
+        Poll(scope=SCOPE, poll_id=POLL, options=2, opens_at=0, closes_at=10))
+    with pytest.raises(ValueError):
+        certify_ranked_result(poll.record, [_rb(_nf("a"), [0])], other_priv)
 
 
 @pytest.mark.property
