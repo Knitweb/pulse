@@ -39,6 +39,15 @@ per-scope pairwise address.
 ([[choice, count]]), ballot_root, quorum, quorum_met, winner, winner_votes, tie, weighted,
 total_weight, weight_root`.
 
+**`vbank-delegation`** (liquid) — a gated, signed delegation: `kind, scope, poll_id, actor,
+scope_nullifier, delegate_nullifier, seq`. **`vbank-liquid-result`** — the certified delegated
+result: poll-linked, with `results`, `direct_voters`, `delegations`, `total_weight`, `winner`.
+
+**`vbank-ranked-ballot`** (ranked-choice) — a gated, signed ranked vote carrying a `ranking`
+(preference-ordered option ids) instead of a single `choice`. **`vbank-ranked-result`** — the
+certified IRV result: poll-linked, with per-round `rounds` (counts + eliminated), `winner`,
+`winner_round`.
+
 ## Properties
 
 - **One person, one vote** — ballots dedupe on `scope_nullifier`; the highest-`seq` ballot wins
@@ -51,8 +60,16 @@ total_weight, weight_root`.
 - **Fixed-point weighted voting** — `certify_result(..., weights={nullifier: int})` sums
   non-negative integer weights instead of 1 (absent ⇒ 0); the result commits to a `weight_root`
   so weighting stays auditable. Omit `weights` for one-person-one-vote.
+- **Liquid (delegated) voting** — a voter signs a gated `vbank-delegation` naming a delegate by
+  nullifier; weight flows along delegation chains to whoever actually voted (direct vote
+  overrides delegation, transitive resolution, cycles/dead-ends abstain). `certify_liquid_result`
+  produces a signed, auditable `vbank-liquid-result`. Composes with weights.
+- **Ranked-choice (instant-runoff)** — a gated `vbank-ranked-ballot` lists options in preference
+  order; `instant_runoff` eliminates the lowest option and redistributes to next preferences
+  until a strict majority (exhausted ballots drop out). `certify_ranked_result` produces a
+  signed, auditable `vbank-ranked-result` with per-round tallies. Composes with weights.
 - **Deterministic + order-independent** — the same ballot set always yields the same result CID,
-  regardless of order.
+  regardless of order. This holds for all four methods (plurality, weighted, liquid, ranked).
 - **Public audit trail** — `ballot_root` (Merkle over the counted ballot CIDs) and `weight_root`
   commit to exactly what was counted; `verify_result` lets anyone recompute the result from the
   poll + ballots, and `audit_result` adds the authority-signature check.
@@ -69,6 +86,15 @@ total_weight, weight_root`.
 - `collect_ballots(web, scope, poll_id)` — read woven ballots back out for a poll.
 - `verify_result(result_record, poll_record, ballots, weights=None)` /
   `audit_result(result_att, poll_record, ballots, weights=None)` — independent audit.
+- **Liquid:** `emit_delegation(delegation, ticket, priv)`, `collect_delegations(web, scope, poll_id)`,
+  `resolve_liquid(direct_choices, delegations, weights=None)`, `certify_liquid_result(...)`,
+  `verify_liquid_result(...)` / `audit_liquid_result(...)`.
+- **Ranked:** `emit_ranked_ballot(ballot, ticket, priv)`, `collect_ranked_ballots(web, scope, poll_id)`,
+  `instant_runoff(ballots, options, weights=None)`, `certify_ranked_result(...)`,
+  `verify_ranked_result(...)` / `audit_ranked_result(...)`.
+
+Every result type (plurality/weighted, liquid, ranked) is signed by the poll authority and
+independently recomputable + auditable by anyone.
 
 ## Trust model
 

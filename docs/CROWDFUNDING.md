@@ -26,7 +26,8 @@ Runnable demo: `PYTHONPATH=src python examples/crowdfunding_demo.py` (exit 0 ⇒
 ## Record kinds (integer/bytes/bool, canonical CBOR, signatures outside the record)
 
 **`crowdfunding-campaign`** — signed by the campaign **authority**:
-`kind, scope (campaign id), goal (PLS-wei, > 0), opens_at, closes_at, authority`.
+`kind, scope (campaign id), goal (PLS-wei, > 0), opens_at, closes_at, beneficiary (pls1 addr
+funds release to on success, optional), authority`.
 
 **`crowdfunding-pledge`** — gated by a personhood ticket, signed by the pledger's pairwise key
 (`actor`): `kind, scope, amount (PLS-wei, > 0), actor, scope_nullifier, pledged_at`. **No
@@ -35,6 +36,10 @@ identity** — only the scoped nullifier + the per-scope pairwise address.
 **`crowdfunding-outcome`** — signed by the defining authority: `kind, scope, campaign_cid,
 authority, goal, total_raised, goal_met, pledger_count (distinct nullifiers), pledge_count
 (in-window pledges), pledge_root`.
+
+**`crowdfunding-settlement`** — signed by the defining authority: `kind, scope, campaign_cid,
+outcome_cid, authority, mode (release|refund), total_amount, entry_count, settlement_root
+(Merkle over per-payee (pledge_cid, payee, amount))`.
 
 ## Properties
 
@@ -47,6 +52,12 @@ authority, goal, total_raised, goal_met, pledger_count (distinct nullifiers), pl
 - **Public audit trail** — ``pledge_root`` (Merkle over counted pledge CIDs) + ``verify_outcome``
   let anyone recompute the outcome from the campaign + pledges; ``audit_outcome`` adds the
   signature check.
+- **All-or-nothing settlement** — a campaign declares a ``beneficiary``; ``settle()`` recomputes +
+  matches the certified outcome, then signs a ``crowdfunding-settlement`` instructing **release**
+  to the beneficiary if the goal was met or **refund** to each pledger if not (per-payee amounts
+  committed in a ``settlement_root``; ``verify_settlement``/``audit_settlement`` check it). It is
+  the deterministic instruction a payout layer executes — wiring it to actual ledger ``Knit``
+  transfers (pledge-time PLS escrow + a per-payee accept handshake) is a designed future step.
 - **Zero PII on the fabric** — enforced by the personhood layer.
 
 ## API surface (`knitweb.knitwebs.crowdfunding`)
@@ -57,6 +68,8 @@ authority, goal, total_raised, goal_met, pledger_count (distinct nullifiers), pl
   `weave(pledge, ticket, pledger_priv, web)`.
 - `collect_pledges(web, scope)` — read woven pledges back out.
 - `verify_outcome(...)` / `audit_outcome(...)` — independent audit.
+- `CrowdfundingCampaign.settle(outcome_record, campaign_record, pledges)` — sign the all-or-nothing
+  settlement; `verify_settlement(...)` / `audit_settlement(...)` — independent audit.
 
 ## Trust model
 
