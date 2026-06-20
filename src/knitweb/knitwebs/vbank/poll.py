@@ -28,7 +28,7 @@ from ...fabric.attest import Attestation, attest
 from ...fabric.web import Web
 from .tally import tally
 
-__all__ = ["POLL_KIND", "RESULT_KIND", "Poll", "VbankPoll"]
+__all__ = ["POLL_KIND", "RESULT_KIND", "Poll", "VbankPoll", "verify_result", "audit_result"]
 
 POLL_KIND = "vbank-poll"
 RESULT_KIND = "vbank-result"
@@ -91,67 +91,107 @@ class VbankPoll:
     def certify_result(self, poll_record: dict, ballots: list[dict]) -> Attestation:
         """Validate ballots against the definition, tally them, and sign the result.
 
-        ``poll_record`` is a ``vbank-poll`` definition this authority signed. Each ballot's
-        ``choice`` must be in ``0..options-1``. Raises ``ValueError`` otherwise.
+        ``poll_record`` is a ``vbank-poll`` definition this authority signed. Each in-window
+        ballot's ``choice`` must be in ``0..options-1``. Raises ``ValueError`` otherwise. The
+        deterministic computation lives in :func:`_result_record` so an auditor can recompute
+        and check it independently (see :func:`verify_result`).
         """
-        if poll_record.get("kind") != POLL_KIND:
-            raise ValueError(f"not a {POLL_KIND}: {poll_record.get('kind')!r}")
         if poll_record.get("authority") != self.authority:
             raise ValueError("only the defining authority may certify this poll's result")
-        scope = poll_record["scope"]
-        poll_id = poll_record["poll_id"]
-        options = poll_record["options"]
-        opens_at = poll_record["opens_at"]
-        closes_at = poll_record["closes_at"]
-
-        # Only ballots cast inside the voting window count. Out-of-window ballots are
-        # excluded (the fabric is append-only, so we cannot stop them being emitted — only
-        # decline to count them); in-window ballots have their choice range-checked.
-        in_window = []
-        for ballot in ballots:
-            cast_at = ballot.get("cast_at")
-            if not isinstance(cast_at, int) or isinstance(cast_at, bool):
-                raise ValueError("ballot cast_at must be an int")
-            if not (opens_at <= cast_at < closes_at):
-                continue
-            choice = ballot.get("choice")
-            if not isinstance(choice, int) or isinstance(choice, bool) or not (0 <= choice < options):
-                raise ValueError(f"ballot choice {choice!r} out of range 0..{options - 1}")
-            in_window.append(ballot)
-
-        counted = tally(scope, poll_id, in_window)
-        results = counted["results"]
-        total_voters = counted["total_voters"]
-
-        # Outcome: plurality winner with a deterministic smallest-option-id tie-break.
-        if results:
-            top = max(count for _choice, count in results)
-            leaders = [choice for choice, count in results if count == top]
-            winner, winner_votes, tie = min(leaders), top, len(leaders) > 1
-        else:
-            winner, winner_votes, tie = -1, 0, False
-        quorum = poll_record.get("quorum", 0)
-        quorum_met = total_voters >= quorum
-
-        record = {
-            "kind": RESULT_KIND,
-            "scope": scope,
-            "poll_id": poll_id,
-            "poll_cid": canonical.cid(poll_record),
-            "authority": self.authority,
-            "total_voters": total_voters,
-            "results": results,
-            "ballot_root": counted["ballot_root"],
-            "quorum": quorum,
-            "quorum_met": quorum_met,
-            "winner": winner,
-            "winner_votes": winner_votes,
-            "tie": tie,
-        }
-        canonical.encode(record)
+        record = _result_record(poll_record, ballots, self.authority)
         return attest(record, self._priv, author_field="authority")
 
     def weave_result(self, poll_record: dict, ballots: list[dict], web: Web) -> tuple[str, Attestation]:
         """Certify and weave a result into ``web``; return (cid, attestation)."""
         att = self.certify_result(poll_record, ballots)
         return web.weave(att.record), att
+
+
+# ---------------------------------------------------------------------------
+# Pure result computation + independent audit (no signing key required)
+# ---------------------------------------------------------------------------
+
+def _result_record(poll_record: dict, ballots: list[dict], authority_addr: str) -> dict:
+    """The deterministic ``vbank-result`` record for (poll, ballots) — pure, unsigned.
+
+    Shared by :meth:`VbankPoll.certify_result` (which signs it) and :func:`verify_result`
+    (which recomputes and compares), so a result is independently reproducible.
+    """
+    if poll_record.get("kind") != POLL_KIND:
+        raise ValueError(f"not a {POLL_KIND}: {poll_record.get('kind')!r}")
+    scope = poll_record["scope"]
+    poll_id = poll_record["poll_id"]
+    options = poll_record["options"]
+    opens_at = poll_record["opens_at"]
+    closes_at = poll_record["closes_at"]
+
+    # Only ballots cast inside the voting window count; in-window choices are range-checked.
+    in_window = []
+    for ballot in ballots:
+        cast_at = ballot.get("cast_at")
+        if not isinstance(cast_at, int) or isinstance(cast_at, bool):
+            raise ValueError("ballot cast_at must be an int")
+        if not (opens_at <= cast_at < closes_at):
+            continue
+        choice = ballot.get("choice")
+        if not isinstance(choice, int) or isinstance(choice, bool) or not (0 <= choice < options):
+            raise ValueError(f"ballot choice {choice!r} out of range 0..{options - 1}")
+        in_window.append(ballot)
+
+    counted = tally(scope, poll_id, in_window)
+    results = counted["results"]
+    total_voters = counted["total_voters"]
+
+    # Outcome: plurality winner with a deterministic smallest-option-id tie-break.
+    if results:
+        top = max(count for _choice, count in results)
+        leaders = [choice for choice, count in results if count == top]
+        winner, winner_votes, tie = min(leaders), top, len(leaders) > 1
+    else:
+        winner, winner_votes, tie = -1, 0, False
+    quorum = poll_record.get("quorum", 0)
+
+    record = {
+        "kind": RESULT_KIND,
+        "scope": scope,
+        "poll_id": poll_id,
+        "poll_cid": canonical.cid(poll_record),
+        "authority": authority_addr,
+        "total_voters": total_voters,
+        "results": results,
+        "ballot_root": counted["ballot_root"],
+        "quorum": quorum,
+        "quorum_met": total_voters >= quorum,
+        "winner": winner,
+        "winner_votes": winner_votes,
+        "tie": tie,
+    }
+    canonical.encode(record)
+    return record
+
+
+def verify_result(result_record: dict, poll_record: dict, ballots: list[dict]) -> bool:
+    """True iff ``result_record`` is exactly what an honest authority certifies from
+    ``poll_record`` + ``ballots``.
+
+    Independent recomputation — anyone can run it to audit a published result. It does NOT
+    check the signature (use the result's :class:`~knitweb.fabric.attest.Attestation` or
+    :func:`audit_result` for that). The result's authority must be the poll's authority.
+    """
+    if result_record.get("kind") != RESULT_KIND:
+        return False
+    if poll_record.get("authority") != result_record.get("authority"):
+        return False
+    try:
+        expected = _result_record(poll_record, ballots, result_record["authority"])
+    except (ValueError, KeyError, TypeError):
+        return False
+    return expected == result_record
+
+
+def audit_result(result_att: Attestation, poll_record: dict, ballots: list[dict]) -> bool:
+    """Full audit: the result is validly authority-signed AND recomputes from the ballots."""
+    return (
+        result_att.verify(author_field="authority")
+        and verify_result(result_att.record, poll_record, ballots)
+    )

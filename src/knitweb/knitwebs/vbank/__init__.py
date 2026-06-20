@@ -21,12 +21,12 @@ from ...core import canonical, crypto
 from ...fabric.attest import Attestation, attest
 from ...fabric.web import Web
 from ...personhood.gate import PersonhoodTicket
-from .poll import POLL_KIND, RESULT_KIND, Poll, VbankPoll
+from .poll import POLL_KIND, RESULT_KIND, Poll, VbankPoll, audit_result, verify_result
 from .tally import BALLOT_KIND, TALLY_KIND, tally
 
 __all__ = [
     "Ballot", "VbankKnitweb", "tally", "BALLOT_KIND", "TALLY_KIND",
-    "Poll", "VbankPoll", "POLL_KIND", "RESULT_KIND",
+    "Poll", "VbankPoll", "POLL_KIND", "RESULT_KIND", "verify_result", "audit_result",
 ]
 
 

@@ -11,6 +11,8 @@ from knitweb.knitwebs.vbank import (
     RESULT_KIND,
     Poll,
     VbankPoll,
+    audit_result,
+    verify_result,
 )
 
 SCOPE = "vbank"
@@ -171,6 +173,72 @@ def test_no_votes_has_no_winner():
     assert res.record["winner_votes"] == 0
     assert res.record["tie"] is False
     assert res.record["quorum_met"] is False   # 0 voters < quorum 1
+
+
+@pytest.mark.property
+def test_independent_audit_of_a_certified_result():
+    priv, authority = _authority()
+    poll = _poll(authority, options=3, quorum=2)
+    ballots = [_ballot(_nf(0), 0), _ballot(_nf(1), 0), _ballot(_nf(2), 2)]
+    result = authority.certify_result(poll.record, ballots)
+    # an auditor with the poll, the ballots, and the signed result can confirm everything
+    assert verify_result(result.record, poll.record, ballots)
+    assert audit_result(result, poll.record, ballots)
+
+
+@pytest.mark.property
+def test_audit_fails_if_ballot_set_differs():
+    priv, authority = _authority()
+    poll = _poll(authority, options=3)
+    ballots = [_ballot(_nf(0), 0), _ballot(_nf(1), 0)]
+    result = authority.certify_result(poll.record, ballots)
+    # auditor presented with an extra (or missing) ballot must reject the recomputation
+    assert not verify_result(result.record, poll.record, ballots + [_ballot(_nf(2), 1)])
+    assert not verify_result(result.record, poll.record, ballots[:1])
+
+
+@pytest.mark.property
+def test_audit_fails_if_result_record_tampered():
+    priv, authority = _authority()
+    poll = _poll(authority, options=3)
+    ballots = [_ballot(_nf(0), 0), _ballot(_nf(1), 0), _ballot(_nf(2), 1)]
+    result = authority.certify_result(poll.record, ballots)
+    forged = dict(result.record, winner=1)  # lie about the winner
+    assert not verify_result(forged, poll.record, ballots)
+
+
+@pytest.mark.property
+def test_audit_fails_on_broken_signature():
+    from knitweb.fabric.attest import Attestation
+    priv, authority = _authority()
+    poll = _poll(authority, options=2)
+    ballots = [_ballot(_nf(0), 1), _ballot(_nf(1), 1), _ballot(_nf(2), 0)]  # winner is 1
+    result = authority.certify_result(poll.record, ballots)
+    assert result.record["winner"] == 1
+    # the signature is over the real record; the forged record (winner 0) won't verify
+    forged = Attestation(record=dict(result.record, winner=0),
+                         author_pub=result.author_pub, sig=result.sig)
+    assert not audit_result(forged, poll.record, ballots)
+
+
+@pytest.mark.property
+def test_audit_fails_if_result_authority_not_poll_authority():
+    _, authority_a = _authority()
+    _, authority_b = _authority()
+    poll = _poll(authority_a, options=2)
+    ballots = [_ballot(_nf(0), 1)]
+    # authority B certifies a result claiming B as authority; it does not match poll A's authority
+    result_b = _result_for(authority_b, poll.record, ballots)
+    assert not verify_result(result_b.record, poll.record, ballots)
+
+
+def _result_for(authority: VbankPoll, poll_record: dict, ballots: list) -> object:
+    # build a signed result whose 'authority' is this (non-defining) authority, bypassing the
+    # defining-authority guard, to prove verify_result still rejects the authority mismatch
+    from knitweb.fabric.attest import attest
+    from knitweb.knitwebs.vbank.poll import _result_record
+    record = _result_record(poll_record, ballots, authority.authority)
+    return attest(record, authority._priv, author_field="authority")
 
 
 @pytest.mark.property
