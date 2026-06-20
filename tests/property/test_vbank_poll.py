@@ -78,11 +78,13 @@ def test_certified_result_counts_and_links_to_definition():
 
 
 @pytest.mark.property
-def test_choice_out_of_range_is_rejected():
+def test_out_of_range_choice_is_excluded_not_fatal():
+    # An out-of-range ballot must be SKIPPED, not abort certification of the whole poll (griefing).
     priv, authority = _authority()
     poll_att = _poll(authority, options=3)
-    with pytest.raises(ValueError):
-        authority.certify_result(poll_att.record, [_ballot(_nf(0), 3)])  # 3 not in 0..2
+    res = authority.certify_result(poll_att.record, [_ballot(_nf(0), 1), _ballot(_nf(1), 3)])
+    assert res.record["total_voters"] == 1        # the choice-3 ballot is dropped, not fatal
+    assert res.record["results"] == [[1, 1]]
 
 
 @pytest.mark.property
@@ -173,6 +175,16 @@ def test_no_votes_has_no_winner():
     assert res.record["winner_votes"] == 0
     assert res.record["tie"] is False
     assert res.record["quorum_met"] is False   # 0 voters < quorum 1
+
+
+@pytest.mark.property
+def test_verify_result_rejects_non_dict_inputs():
+    priv, authority = _authority()
+    poll = _poll(authority, options=3)
+    res = authority.certify_result(poll.record, [_ballot(_nf(0), 0)])
+    assert verify_result(res.record, poll.record, [_ballot(_nf(0), 0)])  # sanity: honest passes
+    assert verify_result([1, 2, 3], poll.record, []) is False            # non-dict result
+    assert verify_result(res.record, "not-a-dict", []) is False          # non-dict poll
 
 
 @pytest.mark.property

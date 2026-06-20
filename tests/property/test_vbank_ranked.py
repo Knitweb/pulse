@@ -69,11 +69,26 @@ def test_exhausted_ballot_drops_out():
 
 
 @pytest.mark.property
-def test_tie_elimination_prefers_smallest_id():
+def test_perfect_tie_is_flagged_and_smallest_id_wins():
+    # A perfect tie is surfaced (tie=True) and resolved to the smallest option id — consistent
+    # with plurality/liquid — rather than silently eliminating the smaller id and crowning a larger.
     ballots = [_rb(_nf("a"), [0]), _rb(_nf("b"), [1]), _rb(_nf("c"), [2])]
     res = instant_runoff(ballots, options=3)
-    assert res["rounds"][0]["eliminated"] == 0      # three-way tie -> eliminate smallest id
-    assert res["winner"] == 2                        # 1 then eliminated, 2 last standing
+    assert res["winner"] == 0 and res["tie"] is True
+    assert res["rounds"][0]["eliminated"] == -1
+
+
+@pytest.mark.property
+def test_two_way_perfect_tie_flagged():
+    ballots = [_rb(_nf("a"), [0]), _rb(_nf("b"), [1])]
+    res = instant_runoff(ballots, options=2)
+    assert res["winner"] == 0 and res["tie"] is True
+
+
+@pytest.mark.property
+def test_clear_winner_is_not_flagged_as_tie():
+    res = instant_runoff([_rb(_nf("a"), [0]), _rb(_nf("b"), [0]), _rb(_nf("c"), [1])], options=2)
+    assert res["winner"] == 0 and res["tie"] is False
 
 
 @pytest.mark.property
@@ -132,6 +147,17 @@ def test_certified_ranked_excludes_out_of_window():
         Poll(scope=SCOPE, poll_id=POLL, options=2, opens_at=0, closes_at=10))
     ballots = [_rb(_nf("a"), [0]), dict(_rb(_nf("b"), [1]), cast_at=999)]  # b out of window
     att = certify_ranked_result(poll.record, ballots, authority_priv)
+    assert att.record["voters"] == 1 and att.record["winner"] == 0
+
+
+@pytest.mark.property
+def test_ranked_certify_skips_malformed_ballot_not_fatal():
+    authority_priv, _ = crypto.generate_keypair()
+    poll = VbankPoll(authority_priv, SCOPE).define(
+        Poll(scope=SCOPE, poll_id=POLL, options=3, opens_at=0, closes_at=10))
+    good = _rb(_nf("a"), [0])
+    bad = _rb(_nf("b"), [5])   # option 5 out of range -> skipped, not fatal
+    att = certify_ranked_result(poll.record, [good, bad], authority_priv)
     assert att.record["voters"] == 1 and att.record["winner"] == 0
 
 

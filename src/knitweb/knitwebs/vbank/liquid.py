@@ -183,24 +183,29 @@ def liquid_result_record(poll_record: dict, ballots: List[dict], delegations: Li
     opens_at = poll_record["opens_at"]
     closes_at = poll_record["closes_at"]
 
+    # Count only well-formed, in-window ballots for THIS poll; skip anything else (a single
+    # malformed/foreign admitted ballot must not block certification — same rule as delegations).
     in_window: List[dict] = []
     for ballot in ballots:
         if ballot.get("kind") != BALLOT_KIND:
-            raise ValueError(f"not a {BALLOT_KIND}: {ballot.get('kind')!r}")
+            continue
         if ballot.get("scope") != scope or ballot.get("poll_id") != poll_id:
-            raise ValueError("ballot scope/poll_id does not match the poll")
+            continue
         cast_at = ballot.get("cast_at")
         if not isinstance(cast_at, int) or isinstance(cast_at, bool):
-            raise ValueError("ballot cast_at must be an int")
+            continue
         if not (opens_at <= cast_at < closes_at):
             continue
         choice = ballot.get("choice")
         if not isinstance(choice, int) or isinstance(choice, bool) or not (0 <= choice < options):
-            raise ValueError(f"ballot choice {choice!r} out of range 0..{options - 1}")
+            continue
         in_window.append(ballot)
 
     direct = _direct_choices(in_window)
-    deleg = delegation_map(delegations)
+    # Bind delegations to THIS poll, exactly as ballots are bound above — otherwise a delegation
+    # signed for a different poll/scope would inflate this tally yet still pass independent audit.
+    scoped = [d for d in delegations if d.get("scope") == scope and d.get("poll_id") == poll_id]
+    deleg = delegation_map(scoped)
     counts = resolve_liquid(direct, deleg, weights)
     results = [[choice, counts[choice]] for choice in sorted(counts)]
     if results:
@@ -241,6 +246,8 @@ def certify_liquid_result(poll_record: dict, ballots: List[dict], delegations: L
 def verify_liquid_result(result_record: dict, poll_record: dict, ballots: List[dict],
                          delegations: List[dict], weights: Dict[str, int] | None = None) -> bool:
     """True iff ``result_record`` is the honest liquid result for these inputs (recomputation)."""
+    if not isinstance(result_record, dict) or not isinstance(poll_record, dict):
+        return False
     if result_record.get("kind") != LIQUID_RESULT_KIND:
         return False
     if poll_record.get("authority") != result_record.get("authority"):

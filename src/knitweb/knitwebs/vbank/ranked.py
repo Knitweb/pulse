@@ -146,7 +146,7 @@ def instant_runoff(ballots: List[dict], options: int,
 
     eliminated: set = set()
     rounds: List[dict] = []
-    winner, winner_round = -1, -1
+    winner, winner_round, tie = -1, -1, False
 
     while True:
         active = [c for c in range(options) if c not in eliminated]
@@ -176,6 +176,14 @@ def instant_runoff(ballots: List[dict], options: int,
             winner, winner_round = leader, len(rounds) - 1
             break
 
+        # Perfect tie among all remaining candidates: elimination cannot break it meaningfully, so
+        # award the smallest option id (consistent with plurality/liquid) and flag the tie rather
+        # than silently eliminating the smaller id and crowning the larger one.
+        if min(round_counts.values()) == max(round_counts.values()):
+            rounds.append({"counts": sorted([[c, round_counts[c]] for c in active]), "eliminated": -1})
+            winner, winner_round, tie = min(active), len(rounds) - 1, True
+            break
+
         loser = min(active, key=lambda c: (round_counts[c], c))  # fewest votes, tie smallest id
         rounds.append({"counts": sorted([[c, round_counts[c]] for c in active]), "eliminated": loser})
         eliminated.add(loser)
@@ -186,30 +194,45 @@ def instant_runoff(ballots: List[dict], options: int,
         "rounds": rounds,
         "winner": winner,
         "winner_round": winner_round,
+        "tie": tie,
     }
     canonical.encode(record)
     return record
 
 
 def _in_window_ranked(poll_record: dict, ballots: List[dict]) -> List[dict]:
-    """Ranked ballots cast inside the poll's window (option-range is checked at tally time)."""
+    """Well-formed ranked ballots for THIS poll, cast inside its window.
+
+    A malformed/foreign/out-of-range ranked ballot is SKIPPED, never fatal — one admitted bad
+    ballot must not block certification (the append-only fabric cannot prevent its emission). The
+    ranking range is validated here too, so the downstream tally never raises on a bad ranking.
+    """
     if poll_record.get("kind") != POLL_KIND:
         raise ValueError(f"not a {POLL_KIND}: {poll_record.get('kind')!r}")
     scope = poll_record["scope"]
     poll_id = poll_record["poll_id"]
+    options = poll_record["options"]
     opens_at = poll_record["opens_at"]
     closes_at = poll_record["closes_at"]
     in_window: List[dict] = []
     for ballot in ballots:
         if ballot.get("kind") != RANKED_BALLOT_KIND:
-            raise ValueError(f"not a {RANKED_BALLOT_KIND}: {ballot.get('kind')!r}")
+            continue
         if ballot.get("scope") != scope or ballot.get("poll_id") != poll_id:
-            raise ValueError("ballot scope/poll_id does not match the poll")
+            continue
         cast_at = ballot.get("cast_at")
         if not isinstance(cast_at, int) or isinstance(cast_at, bool):
-            raise ValueError("ballot cast_at must be an int")
-        if opens_at <= cast_at < closes_at:
-            in_window.append(ballot)
+            continue
+        if not (opens_at <= cast_at < closes_at):
+            continue
+        ranking = ballot.get("ranking")
+        if not isinstance(ranking, (list, tuple)) or not ranking:
+            continue
+        if len(set(ranking)) != len(ranking):
+            continue
+        if any(not isinstance(o, int) or isinstance(o, bool) or not (0 <= o < options) for o in ranking):
+            continue
+        in_window.append(ballot)
     return in_window
 
 
@@ -229,6 +252,7 @@ def ranked_result_record(poll_record: dict, ballots: List[dict], authority_addr:
         "rounds": irv["rounds"],
         "winner": irv["winner"],
         "winner_round": irv["winner_round"],
+        "tie": irv["tie"],
     }
     canonical.encode(record)
     return record
@@ -247,6 +271,8 @@ def certify_ranked_result(poll_record: dict, ballots: List[dict], authority_priv
 def verify_ranked_result(result_record: dict, poll_record: dict, ballots: List[dict],
                          weights: Dict[str, int] | None = None) -> bool:
     """True iff ``result_record`` is the honest IRV result for these inputs (recomputation)."""
+    if not isinstance(result_record, dict) or not isinstance(poll_record, dict):
+        return False
     if result_record.get("kind") != RANKED_RESULT_KIND:
         return False
     if poll_record.get("authority") != result_record.get("authority"):

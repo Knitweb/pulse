@@ -105,6 +105,14 @@ def test_collect_ballots_from_web_then_tally():
 
 
 @pytest.mark.property
+def test_tally_missing_field_raises_value_error():
+    # documented contract: ValueError (not a bare KeyError) on a malformed ballot
+    bad = {"kind": BALLOT_KIND, "scope": SCOPE, "poll_id": POLL}  # no seq/choice/nullifier
+    with pytest.raises(ValueError):
+        tally(SCOPE, POLL, [bad])
+
+
+@pytest.mark.property
 def test_collect_ballots_empty_web():
     assert collect_ballots(Web(), SCOPE, POLL) == []
 

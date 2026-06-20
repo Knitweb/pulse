@@ -71,6 +71,9 @@ def tally(scope: str, poll_id: str, ballots: Iterable[dict],
             raise ValueError(f"not a {BALLOT_KIND}: {ballot.get('kind')!r}")
         if ballot.get("scope") != scope or ballot.get("poll_id") != poll_id:
             raise ValueError("ballot scope/poll_id does not match the tally")
+        for field in ("scope_nullifier", "seq", "choice"):
+            if field not in ballot:
+                raise ValueError(f"ballot is missing required field {field!r}")
         nullifier = ballot["scope_nullifier"]
         seq = ballot["seq"]
         choice = ballot["choice"]

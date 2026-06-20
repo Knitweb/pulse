@@ -131,17 +131,19 @@ def _result_record(poll_record: dict, ballots: list[dict], authority_addr: str,
     opens_at = poll_record["opens_at"]
     closes_at = poll_record["closes_at"]
 
-    # Only ballots cast inside the voting window count; in-window choices are range-checked.
+    # Count only well-formed ballots cast inside the voting window. A malformed or out-of-range
+    # ballot is SKIPPED, never fatal — otherwise one admitted bad ballot would block certification
+    # of the whole poll (griefing), since the append-only fabric cannot prevent its emission.
     in_window = []
     for ballot in ballots:
         cast_at = ballot.get("cast_at")
         if not isinstance(cast_at, int) or isinstance(cast_at, bool):
-            raise ValueError("ballot cast_at must be an int")
+            continue
         if not (opens_at <= cast_at < closes_at):
             continue
         choice = ballot.get("choice")
         if not isinstance(choice, int) or isinstance(choice, bool) or not (0 <= choice < options):
-            raise ValueError(f"ballot choice {choice!r} out of range 0..{options - 1}")
+            continue
         in_window.append(ballot)
 
     counted = tally(scope, poll_id, in_window, weights)
@@ -189,6 +191,8 @@ def verify_result(result_record: dict, poll_record: dict, ballots: list[dict],
     :func:`audit_result` for that). The result's authority must be the poll's authority, and
     for a weighted result the auditor's ``weights`` must reproduce the committed ``weight_root``.
     """
+    if not isinstance(result_record, dict) or not isinstance(poll_record, dict):
+        return False
     if result_record.get("kind") != RESULT_KIND:
         return False
     if poll_record.get("authority") != result_record.get("authority"):

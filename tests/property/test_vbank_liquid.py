@@ -147,6 +147,27 @@ def test_certified_liquid_result():
 
 
 @pytest.mark.property
+def test_cross_poll_or_scope_delegation_does_not_inflate():
+    authority_priv, _ = crypto.generate_keypair()
+    poll = _poll(authority_priv)  # scope SCOPE, poll_id POLL
+    ballots = [_ballot(_nf("a"), 0)]
+    foreign_poll = dict(_deleg(_nf("b"), _nf("a")), poll_id="OTHER-POLL")
+    foreign_scope = dict(_deleg(_nf("c"), _nf("a")), scope="OTHER-SCOPE")
+    att = certify_liquid_result(poll.record, ballots, [foreign_poll, foreign_scope], authority_priv)
+    assert att.record["results"] == [[0, 1]]   # foreign delegations ignored (not [[0,3]])
+    assert att.record["delegations"] == 0
+    assert verify_liquid_result(att.record, poll.record, ballots, [foreign_poll, foreign_scope])
+
+
+@pytest.mark.property
+def test_verify_liquid_result_rejects_non_dict():
+    authority_priv, _ = crypto.generate_keypair()
+    poll = _poll(authority_priv)
+    assert verify_liquid_result([1, 2], poll.record, [], []) is False
+    assert verify_liquid_result({"kind": LIQUID_RESULT_KIND}, "nope", [], []) is False
+
+
+@pytest.mark.property
 def test_only_authority_certifies_liquid_result():
     authority_priv, _ = crypto.generate_keypair()
     other_priv, _ = crypto.generate_keypair()
