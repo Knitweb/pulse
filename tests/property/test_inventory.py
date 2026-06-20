@@ -453,6 +453,55 @@ def test_byte_budget_never_partial_serves_a_body_preserving_identity():
         assert fr == store.lookup(cid)
 
 
+def test_byte_budget_serves_whole_bodies_in_request_order_under_nonuniform_sizes():
+    """The serve budget is whole-body + request-order correct even when the stored
+    frames differ in length — the invariant the live throttle path relies on.
+
+    Every OTHER byte-budget test here uses EQUAL-length bodies, so none exercises
+    a sub-body remainder when frames vary in size. Real signed frames DO vary by a
+    couple of bytes (the signature/CID minimal-int encoding), which is exactly what
+    made the live ``test_live_byte_budget_throttles_a_hammering_peer`` flaky until
+    its budget was bounded by the smallest next body (see the interop suite). Pin
+    the underlying ``on_getdata`` contract directly with deliberately DIFFERENT-sized
+    bodies so a regression cannot reintroduce that class:
+
+      1. exactly the first two WHOLE bodies are served, in request order — the third
+         is deferred whole, never truncated (byte-identity preserved);
+      2. a same-window re-request whose remaining budget is a strict fraction of the
+         first body serves NOTHING (the bucket never partial-serves a leftover);
+      3. the next window refills and serves the first two again.
+    """
+    store = FrameStore()
+    # Strictly increasing body sizes via increasing payload lengths (deterministic,
+    # unsigned canonical frames — no crypto randomness): s[0] < s[1] < s[2] < s[3].
+    cids = [
+        store.put_record({"kind": "demo", "seq": i, "payload": "x" * (i + 1)})[0]
+        for i in range(4)
+    ]
+    s = [len(store.lookup(c)) for c in cids]
+    assert s[0] < s[1] < s[2], "bodies must be genuinely non-uniform for this guard"
+
+    clock = _VirtualClock(0)
+    # Room for the first two whole bodies + a sliver strictly below body #0, so the
+    # third cannot fit on request 1 and body #0 cannot fit on the same-window retry.
+    budget = ServeBudget(
+        bytes_per_window=s[0] + s[1] + (s[0] - 1), window_seconds=5, clock=clock
+    )
+    relay = InventoryRelay(store.lookup, budget=budget)
+    frame = build_getdata_frame(cids)
+
+    served = relay.on_getdata(frame, peer="p")
+    assert len(served) == 2  # exactly the first two, request order
+    assert served[0] == store.lookup(cids[0])  # whole body, byte-identical
+    assert served[1] == store.lookup(cids[1])
+
+    # Same window: remaining budget (s0-1) is a strict fraction of body #0 -> none.
+    assert relay.on_getdata(frame, peer="p") == []
+
+    clock.advance(5)  # next window refills the bucket
+    assert len(relay.on_getdata(frame, peer="p")) == 2
+
+
 def test_byte_budget_under_honest_moderate_diff_serves_the_whole_diff():
     """An honest moderate diff is served IN FULL under the generous prod budget.
 
@@ -472,6 +521,47 @@ def test_byte_budget_under_honest_moderate_diff_serves_the_whole_diff():
     served = relay.on_getdata(build_getdata_frame(cids), peer="honest")
     # Served fully (count cap == batch size, byte budget not the limiter).
     assert len(served) == n
+
+
+def test_serve_window_covers_the_largest_possible_body_so_no_fetch_can_starve():
+    """The per-window byte budget must exceed the largest serveable body — the
+    liveness-safety invariant the all-or-nothing serve (#189) silently relies on.
+
+    ``ServeBudget.take`` is all-or-nothing: a body that does not fit the REMAINING
+    budget is deferred WHOLE to a later window, never truncated. That is correct
+    *only* while every serveable body fits a FRESH (full) window bucket. A body
+    larger than ``bytes_per_window`` never fits in ANY window, so it is deferred
+    forever and the requesting peer can NEVER fetch it — a liveness failure, not
+    mere throttling. A stored frame is hard-bounded by ``wire.MAX_FRAME_BYTES``
+    (8 MiB), so the prod window budget (256 MiB) must cover at least that. This
+    invariant is otherwise undocumented and untested: bumping MAX_FRAME_BYTES past
+    the window, or shrinking the window below it, would silently starve large-record
+    fetches with no other test catching it. Pin the invariant AND the failure mode
+    it guards.
+    """
+    from knitweb.p2p.wire import MAX_FRAME_BYTES
+
+    # 1. The prod budget covers the largest possible single body (with headroom).
+    assert SERVE_BYTES_PER_WINDOW >= MAX_FRAME_BYTES
+
+    # 2. The failure mode is real: a body larger than the window is deferred in
+    #    EVERY window, never served — which is exactly why invariant (1) matters.
+    store = FrameStore()
+    cid, frame = store.put_record(_record(0))
+    body_len = len(frame)
+    clock = _VirtualClock(0)
+    too_small = ServeBudget(bytes_per_window=body_len - 1, window_seconds=5, clock=clock)
+    relay = InventoryRelay(store.lookup, budget=too_small)
+    want = build_getdata_frame([cid])
+    assert relay.on_getdata(want, peer="p") == []  # never fits -> deferred
+    clock.advance(5)
+    assert relay.on_getdata(want, peer="p") == []  # next window: STILL never fits
+
+    # 3. A window that covers the body serves it whole (invariant-satisfied case).
+    ok = ServeBudget(bytes_per_window=body_len, window_seconds=5, clock=_VirtualClock(0))
+    relay_ok = InventoryRelay(store.lookup, budget=ok)
+    served = relay_ok.on_getdata(want, peer="p")
+    assert len(served) == 1 and served[0] == frame  # whole + byte-identical
 
 
 def test_serve_budget_is_deterministic_across_replays():
@@ -514,6 +604,69 @@ def test_serve_budget_rejects_bad_construction_and_input():
         b.take("", 10)
     with pytest.raises(ValueError):
         b.take("p", -1)
+
+
+def test_serve_budget_bounds_per_peer_state_under_distinct_peer_flood():
+    """A flood of DISTINCT peer keys cannot leak unbounded per-peer buckets.
+
+    Each ``take`` for a never-seen peer key would otherwise allocate one bucket,
+    so a node hammered by tens of thousands of forged source identities would
+    grow per-peer state without limit — a memory-exhaustion vector. The
+    ``max_peers`` integer LRU caps that: the bucket map is an ``OrderedDict``
+    bounded by ``max_peers`` via ``move_to_end`` + ``popitem(last=False)``, so it
+    never exceeds the cap and retains exactly the most-recently-active peers.
+
+    Deterministic: a single injected ``_VirtualClock(0)`` (one fixed window) and
+    integer-only debits, so the survivor set is fully replayable.
+    """
+    budget = ServeBudget(
+        bytes_per_window=1000,
+        window_seconds=10,
+        max_peers=4,
+        clock=_VirtualClock(0),
+    )
+    for i in range(100):
+        budget.take(f"peer-{i}", 10)
+    # The bound holds: never more than ``max_peers`` buckets, despite 100 keys.
+    assert len(budget._buckets) == 4
+    # LRU eviction kept exactly the 4 most-recently-active peer keys (newest).
+    assert list(budget._buckets) == ["peer-96", "peer-97", "peer-98", "peer-99"]
+
+
+def test_take_is_all_or_nothing_so_an_overlimit_request_never_starves_the_peer():
+    """An over-limit ``take`` debits NOTHING and returns 0 — it must not burn the
+    budget an honest peer needs for the affordable requests that follow it.
+
+    This is the #185 over-debit invariant pinned on the primitive itself. Every
+    serve gate that guards work with ``take(peer, n) < n`` — ``on_getdata`` here and
+    the ingest / inv-probe / reconcile gates in ``fabric/node.py`` — rejects a
+    request *wholesale* when it can't be served, because you can't serve half a body,
+    half a probe reply, or half a reconcile frame. A partial debit zeroed the bucket
+    for that rejected request, so one over-sized ask denied the peer every smaller,
+    affordable ask for the rest of the window. All-or-nothing makes that impossible.
+    """
+    clock = _VirtualClock(0)
+    b = ServeBudget(bytes_per_window=100, window_seconds=5, clock=clock)
+
+    # A request that fits is granted whole and debited exactly.
+    assert b.take("p", 60) == 60
+    assert b.remaining("p") == 40
+
+    # A request larger than what's left is rejected (returns 0) and — the crux —
+    # debits NOTHING: the 40 an honest peer still has is left fully intact.
+    assert b.take("p", 41) == 0
+    assert b.remaining("p") == 40
+
+    # ...so a subsequent affordable request in the SAME window is still served.
+    assert b.take("p", 40) == 40
+    assert b.remaining("p") == 0
+
+    # Exact-fit is granted (boundary), and a fresh window refills to full.
+    clock.advance(5)
+    assert b.take("p", 100) == 100
+    assert b.remaining("p") == 0
+    assert b.take("p", 1) == 0          # exhausted: rejected, nothing to over-debit
+    assert b.remaining("p") == 0
 
 
 # ── 8. per-LAYER isolation: each of the TWO dedup layers, alone (#76) ──────────
