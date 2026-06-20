@@ -172,8 +172,14 @@ def test_broadcast_counts_sent_and_failed_per_peer():
     assert sender.metrics.get("broadcasts_failed") == 1  # offline peer errored
     # The live peer ingested the record over its dispatch path.
     assert live.metrics.get("records_woven") == 1
-    assert live.metrics.get("frames_in") == 1
-    assert live.metrics.get("frames_out") == 1
+    # Lazy relay (#64): propagation is now a two-step exchange per peer that lacks
+    # the CID — an inv-announce dial then an inv-data dial carrying the body — so a
+    # delivering weave drives TWO frames in/out at the live peer (was one when the
+    # weave full-flooded a single fabric-record). The per-peer broadcasts_sent /
+    # broadcasts_failed counters above are unchanged: one logical delivery / one
+    # offline failure, regardless of how many legs the lazy exchange takes.
+    assert live.metrics.get("frames_in") == 2
+    assert live.metrics.get("frames_out") == 2
 
 
 def test_dispatch_counts_frames_in_and_out():
@@ -248,21 +254,27 @@ class _StubReader:
 def test_banned_peer_refusal_is_counted():
     from knitweb.p2p.reputation import Offense
 
+    from knitweb.p2p.transport import tcp_peer_id
+    from knitweb.p2p.wire import write_frame_bytes
+
     async def scenario():
         server = FabricNode()
         peer = ("10.0.0.9", 5555)
-        peer_id = "10.0.0.9:5555"
+        # The reputation key is the remote IP only (tcp:<ip>) — the ephemeral port
+        # is dropped so a repeat offender stays identified across reconnects.
+        peer_id = tcp_peer_id("10.0.0.9")
         server.reputation.penalize(peer_id, Offense.FEED_CONFLICT)  # instant ban
         assert server.reputation.is_banned(peer_id)
         writer = _StubWriter(peer)
-        # A banned peer is refused before any frame is read; the refusal frame is
-        # written and the banned_refusals counter advances.
-        await server._handle_peer(_StubReader(b""), writer)
+        # The ban gate now lives on the single carrier-agnostic _dispatch seam, so
+        # a real frame is decoded first; the banned sender is then refused and the
+        # banned_refusals counter advances.
+        frame = write_frame_bytes({"kind": "fabric-sync-request"})
+        await server._handle_peer(_StubReader(frame), writer)
         return server, writer
 
     server, writer = run(scenario())
     assert server.metrics.get("banned_refusals") == 1
-    assert server.metrics.get("frames_in") == 0  # refused before decode
     assert writer.closed and bytes(writer.frames)  # a "banned" error frame was sent
 
 

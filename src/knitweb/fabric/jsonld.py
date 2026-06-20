@@ -34,10 +34,12 @@ from .web import Edge, Web
 
 __all__ = [
     "DKG_NAMESPACE",
+    "EDGE_METADATA_KEYS",
     "JSONLD_CONTEXT",
     "NODE_TYPE",
     "EDGE_TYPE",
     "ual_for_node",
+    "validate_edge_metadata",
     "export_web",
     "import_web",
 ]
@@ -62,8 +64,17 @@ JSONLD_CONTEXT: dict = {
     "edges": "knit:edges",
     "rel": "knit:rel",
     "weight": "knit:weight",
+    "metadata": "knit:metadata",
+    "reputation": "knit:reputation",
+    "deploy-location": "knit:deployLocation",
+    "debug-score": "knit:debugScore",
     "src": {"@id": "knit:src", "@type": "@id"},
     "dst": {"@id": "knit:dst", "@type": "@id"},
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    # rdfs:label as a *set* of JSON-LD i18n value objects ({@value, @language, @direction}),
+    # so DKG/JSON-LD consumers read every language (and the RTL base direction), not just the
+    # English projection. All-string / float-free, so the document stays canonical-CBOR-encodable.
+    "label": {"@id": "rdfs:label", "@container": "@set"},
 }
 
 
@@ -76,28 +87,115 @@ def ual_for_node(node_cid: str) -> str:
     return f"{DKG_NAMESPACE}/{node_cid}"
 
 
+# Languages written right-to-left — their label literals carry ``@direction: "rtl"`` so a
+# JSON-LD/DKG consumer renders (and round-trips) the script correctly. Arabic is the live
+# case (the woven chemistry graph is EN/RU/ZH/AR); the rest are included so the exporter is
+# correct for any RTL term-node, not just today's data.
+_RTL_LANGS = frozenset({"ar", "he", "fa", "ur", "ps", "sd", "dv", "yi", "ckb", "ug"})
+EDGE_METADATA_KEYS = frozenset({"reputation", "deploy-location", "debug-score"})
+_FORBIDDEN_METADATA_HINTS = {
+    "email",
+    "name",
+    "phone",
+    "address",
+    "ip",
+    "mail",
+    "signature",
+    "private_key",
+    "public_key",
+}
+
+
+def validate_edge_metadata(metadata: object) -> dict[str, object]:
+    """Validate edge metadata before JSON-LD export/import.
+
+    The schema intentionally keeps values primitive and known-keys only:
+    ``reputation``, ``deploy-location`` and ``debug-score``.
+    """
+    if not isinstance(metadata, dict):
+        raise TypeError("edge metadata must be a dict")
+
+    normalized: dict[str, object] = {}
+    for raw_key, raw_value in metadata.items():
+        if not isinstance(raw_key, str) or not raw_key:
+            raise ValueError("edge metadata keys must be non-empty str")
+        key = raw_key.strip()
+        if key in _FORBIDDEN_METADATA_HINTS:
+            raise ValueError(f"metadata key {key!r} is not allowed")
+        if key not in EDGE_METADATA_KEYS:
+            raise ValueError(f"unsupported edge metadata key: {key!r}")
+        if isinstance(raw_value, bool) or isinstance(raw_value, (int, float, str)):
+            normalized[key] = raw_value
+            continue
+        raise TypeError(f"metadata value for {key!r} must be int, float, str, or bool")
+
+    return normalized
+
+
+def _edge_annotations(web: Web, edge: Edge) -> dict[str, object] | None:
+    metadata = web.edge_metadata(edge)
+    if not metadata:
+        return None
+    return validate_edge_metadata(metadata)
+
+
+def _label_literals(record: dict) -> list[dict]:
+    """A term-node's multilingual labels as JSON-LD language-tagged value objects.
+
+    A node carries its labels as a ``labels`` map on its record — ``{"en": "atom",
+    "ru": "атом", "zh": "原子", "ar": "ذرة"}`` (the lang-tagged term-node shape, molgang
+    #32). Each entry becomes ``{"@value": text, "@language": lang[, "@direction": "rtl"]}``
+    so a DKG/JSON-LD consumer reads *every* language and the RTL base direction, instead of
+    an opaque English-only projection (#39, and #22 as titled).
+
+    This is a **pure projection** of the record (already exported losslessly under
+    ``record``), so emitting it keeps ``export_web(import_web(doc)) == doc`` byte-for-byte.
+    """
+    labels = record.get("labels") if isinstance(record, dict) else None
+    if not isinstance(labels, dict):
+        return []
+    out = []
+    for lang in sorted(labels):
+        text = labels[lang]
+        if not (isinstance(lang, str) and isinstance(text, str)):
+            continue
+        obj = {"@value": text, "@language": lang}
+        if lang in _RTL_LANGS:
+            obj["@direction"] = "rtl"
+        out.append(obj)
+    return out
+
+
 def _node_object(web: Web, node_cid: str) -> dict:
     """One JSON-LD node object: the record under a content-derived ``@id`` + its edges.
 
     Outgoing edges are emitted in ``(rel, dst)`` order — the canonical traversal order —
-    so the serialization is deterministic regardless of link insertion order.
+    so the serialization is deterministic regardless of link insertion order. Multilingual
+    labels are additionally surfaced as ``rdfs:label`` language-tagged literals (#39).
     """
     out_edges = sorted(web._out.get(node_cid, []), key=lambda e: (e.rel, e.dst, e.weight))
-    return {
+    obj = {
         "id": node_cid,
         "type": NODE_TYPE,
         "ual": ual_for_node(node_cid),
         "record": web.nodes[node_cid],
-        "edges": [
-            {
-                "type": EDGE_TYPE,
-                "rel": e.rel,
-                "dst": e.dst,
-                "weight": e.weight,
-            }
-            for e in out_edges
-        ],
+        "edges": [],
     }
+    for edge in out_edges:
+        payload = {
+            "type": EDGE_TYPE,
+            "rel": edge.rel,
+            "dst": edge.dst,
+            "weight": edge.weight,
+        }
+        annotations = _edge_annotations(web, edge)
+        if annotations is not None:
+            payload["metadata"] = annotations
+        obj["edges"].append(payload)
+    labels = _label_literals(web.nodes[node_cid])
+    if labels:
+        obj["label"] = labels
+    return obj
 
 
 def export_web(web: Web) -> dict:
@@ -139,7 +237,16 @@ def import_web(doc: dict) -> Web:
     for node in graph:
         src = web.weave(node["record"])  # idempotent; returns the same CID
         for e in node.get("edges", []):
-            web.link(src, e["dst"], e["rel"], weight=e.get("weight", 1))
+            metadata = e.get("metadata")
+            if metadata is not None:
+                metadata = validate_edge_metadata(metadata)
+            web.link(
+                src,
+                e["dst"],
+                e["rel"],
+                weight=e.get("weight", 1),
+                metadata=metadata,
+            )
 
     return web
 

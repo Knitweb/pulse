@@ -30,12 +30,15 @@ from ..fabric.feed_multiproof import prove_range, verify_range_multiproof
 from ..ledger import knitweb as kw
 from ..ledger.knit import Knit
 from ..ledger.node import AccountNode
+from .addrbook import AddrBook
 from .discovery import (
+    MAX_PEX_INBOUND,
     PEER_EXCHANGE_KIND,
-    bootstrap_round,
+    addrbook_share_message,
     directory_from_peerbook,
     handle_peer_exchange,
-    peer_exchange_message,
+    learn_peers,
+    peers_from_records,
 )
 from .policing import police_equivocation_report
 from .reputation import Offense
@@ -50,7 +53,6 @@ from .wire import (
     knit_to_record,
     multiproof_from_record,
     multiproof_to_record,
-    write_frame,
 )
 
 __all__ = [
@@ -148,6 +150,32 @@ class AsyncioP2PNode(BaseNode):
         # peerbook holds at construction; ``bootstrap_peers`` re-seeds before dialing
         # so peers added after __init__ are included.
         self.peers = directory_from_peerbook(self.peerbook)
+        # Eclipse-resistant peer selection (#63 -> live). The flat ``self.peers``
+        # above stays the dedup/membership truth; ``self.addrbook`` is the bucketed
+        # mirror the node SAMPLES from for dialing and PEX replies, so a PEX flood of
+        # one source group cannot crowd an honest minority out of the dial set. It is
+        # seeded with the same peerbook addresses (locally minted -> source=None) and
+        # grows via ``learn_peers`` on every PEX merge. Construct it with a per-node
+        # secret derived from this node's identity: deterministic (same node -> same
+        # buckets, reproducible in tests) yet entirely LOCAL — it salts in-memory
+        # bucket placement only and never enters a canonical record, a Knit, a
+        # signature, or a CID.
+        self.addrbook = AddrBook(self._addrbook_secret())
+        for peer in self.peers.known():
+            self.addrbook.add_new(peer, source=None)
+
+    def _addrbook_secret(self) -> bytes:
+        """Per-node, off-record salt for AddrBook bucket placement.
+
+        Derived from the node identity (the account pubkey when keyed, else the
+        carrier host:port) via SHA-256 under a fixed local domain tag. This is a
+        *local* value: it perturbs which in-memory bucket a learned address lands in
+        so an attacker who does not know it cannot pre-compute collisions into one
+        victim bucket. It is never hashed into a signed/canonical record — canonical
+        bytes and every Knit CID are untouched.
+        """
+        identity = self._reporter_id  # account pubkey when keyed, else host:port
+        return crypto.sha256(b"knitweb-addrbook-secret:v1|" + identity.encode("utf-8"))
 
     # -- server lifecycle -------------------------------------------------
 
@@ -396,17 +424,65 @@ class AsyncioP2PNode(BaseNode):
 
     # -- peer discovery (PEX) ---------------------------------------------
 
-    def _handle_peer_exchange(self, msg: dict) -> dict:
+    @staticmethod
+    def _pex_source(source_id: "str | None") -> "PeerAddress | None":
+        """The addrbook *source* for addresses advertised by reputation key ``source_id``.
+
+        A ``tcp:<ip>`` sender keys on its remote IP (so its advertisements bucket by its
+        own /16 group); a ``relay:<mailbox>`` sender keys per mailbox; a PROVEN
+        ``node:<pubkey>`` keys on a stable per-identity group so a relay sender that
+        rotates its self-asserted reply-to mailbox cannot mint unlimited distinct source
+        groups and spray every new-table bucket (#100/#161) — all of one identity's
+        rotated mailboxes collapse to the ONE ``name:node:;id=<pubkey>`` group. Absent /
+        unidentified stays ``None`` = locally-heard. This is what makes the source-group
+        eclipse defence actually engage on the inbound path (#94/#100).
+        """
+        if not isinstance(source_id, str):
+            return None
+        if source_id.startswith("tcp:"):
+            host = source_id[4:]
+            return PeerAddress(host, 0) if host else None
+        if source_id.startswith("relay:"):
+            mailbox = source_id[6:]
+            return PeerAddress(transport="relay", params={"mailbox": mailbox}) if mailbox else None
+        if source_id.startswith("node:"):
+            pubkey = source_id[5:]
+            return PeerAddress(transport="node", params={"id": pubkey}) if pubkey else None
+        return None
+
+    def _handle_peer_exchange(self, msg: dict, source_id: "str | None" = None) -> dict:
         """Inbound ``peer-exchange``: merge the sender's peers, reply with ours.
 
         Carrier-agnostic — this is reached from :meth:`_dispatch` whether the request
         arrived over a TCP stream or a relay mailbox, and the reply frame bytes are
-        identical either way. Pure logic lives in :func:`handle_peer_exchange`.
+        identical either way. The freshly-advertised peers are mirrored into the bucketed
+        :attr:`addrbook` **keyed on the advertiser's source group** (``source_id``), which
+        is the heart of the eclipse defence: an attacker who floods addresses over one
+        connection shares one source group, so its addresses compete for a bounded set of
+        buckets and cannot crowd an honest minority out of :meth:`AddrBook.sample`. The
+        reply share is likewise drawn from :func:`addrbook_share_message` (source-group
+        diverse, tried-biased). Fixes #94 — previously these were learned as locally-heard
+        (``source=None``), collapsing every advertiser into one group and neutering the
+        new-table defence.
         """
         try:
-            return handle_peer_exchange(self.peers, msg)
+            handle_peer_exchange(self.peers, msg)  # validate + merge into the flat truth
         except (ValueError, WireError) as exc:
             return self._error("bad-peer-exchange", str(exc))
+        # Mirror into the bucketed book with first-source-wins (the `not in` guard keeps a
+        # peer's bucket keyed on its FIRST-heard source — re-adding under a different source
+        # would double-place it across buckets and dilute the defence):
+        #  1. peers advertised in THIS message → keyed on the advertiser's source group (#94),
+        #     added first so their source-group placement wins;
+        #  2. any remaining directory peers (e.g. hand-added via `peers.add`) → locally-heard.
+        source = self._pex_source(source_id)
+        for peer in peers_from_records((msg.get("peers") or [])[:MAX_PEX_INBOUND]):
+            if peer not in self.addrbook:
+                self.addrbook.add_new(peer, source=source)
+        for peer in self.peers.known():
+            if peer not in self.addrbook:
+                self.addrbook.add_new(peer, source=None)
+        return addrbook_share_message(self.addrbook)
 
     async def bootstrap_peers(self, seeds: "list[PeerAddress] | None" = None) -> int:
         """Dial seed peers, exchange known peers, and grow the directory.
@@ -421,22 +497,43 @@ class AsyncioP2PNode(BaseNode):
         bytes — discovery is carrier-independent. A seed that errors or returns a
         non-PEX reply is skipped without aborting the whole round.
         """
-        self.peers.merge(list(self.peerbook.all().values()))
+        # Re-seed BOTH the flat directory and the bucketed book from the peerbook
+        # (locally-minted addresses -> source=None) so peers typed in after
+        # construction are dialable and bucketed.
+        learn_peers(self.peers, self.addrbook, list(self.peerbook.all().values()), source=None)
         targets = seeds if seeds is not None else list(self.peerbook.all().values())
         learned = 0
         for seed in targets:
-            request = peer_exchange_message(self.peers)
+            # Advertise a diversity-spread sample (not the flat first-k) so a flooded
+            # group cannot dominate what we push to seeds either.
+            request = addrbook_share_message(self.addrbook)
             try:
                 reply = await self._roundtrip(seed, request)
             except (P2PError, WireError, OSError):
                 # An unreachable or misbehaving seed must not sink the bootstrap.
                 continue
+            # The roundtrip succeeded: this seed is a peer we actually reached, so
+            # promote it into the *tried* table (Bitcoin-addrman test-before-evict).
+            self.addrbook.mark_tried(seed)
             if reply.get("kind") != PEER_EXCHANGE_KIND:
                 continue
             try:
-                learned += bootstrap_round(self.peers, reply)
+                # Ingest the reply's peers into BOTH layers, keyed on the advertising
+                # ``seed`` as the PEX source. THIS is the eclipse defence on the live
+                # path: every address a flooding seed pushes shares that seed's source
+                # group, so they compete for a bounded set of new-table buckets and
+                # cannot crowd an honest minority out of the dial sample.
+                #
+                # Cap the reply BEFORE parsing — mirroring bootstrap_round (#95) and
+                # handle_peer_exchange — so a single malicious bootstrap reply cannot
+                # contribute more than MAX_PEX_INBOUND learned entries (#98). The
+                # dir-size/static-floor eviction below stays as the second line of
+                # defence; this is the per-reply bound the live path was missing.
+                truncated = (reply.get("peers") or [])[:MAX_PEX_INBOUND]
+                peers = peers_from_records(truncated)
             except (ValueError, WireError):
                 continue
+            learned += learn_peers(self.peers, self.addrbook, peers, source=seed)
         return learned
 
     # -- equivocation gossip ----------------------------------------------
@@ -620,14 +717,31 @@ class AsyncioP2PNode(BaseNode):
 
     # -- transport --------------------------------------------------------
 
+    def _id_signing_key(self) -> "str | None":
+        """This node's account key signs its OPTIONAL piggybacked identity proofs.
+
+        A keyless (account-less) node returns ``None`` and dials without a proof,
+        so the receiver falls back to the carrier id — pre-#58 behaviour.
+        """
+        return self.account.priv if self.account is not None else None
+
     async def _roundtrip(self, peer: PeerAddress, msg: dict) -> dict:
         # The Dialer routes by peer.transport, so a tcp:// peer uses TcpTransport
         # and a relay:// peer uses RelayTransport — identical frame bytes either
-        # way (the carrier never re-encodes the canonical-CBOR payload).
-        return await self.dialer.dial(peer, msg)
+        # way (the carrier never re-encodes the canonical-CBOR payload). We stamp
+        # an OPTIONAL identity proof onto the outbound request (step 2 of #58) so
+        # the receiver keys reputation on our proven node key, not our IP; the
+        # proof rides in the stripped _relay_* envelope and never touches the
+        # canonical frame bytes.
+        return await self.dialer.dial(peer, self._stamp_id_proof(msg))
 
-    def _route(self, kind, msg: dict) -> dict:
-        """Asyncio routing table: feed sync, Knit handshake, equivocation, PEX."""
+    def _route(self, kind, msg: dict, source_id: "str | None" = None) -> dict:
+        """Asyncio routing table: feed sync, Knit handshake, equivocation, PEX.
+
+        ``source_id`` is the carrier id of the sender (``tcp:<ip>`` / ``relay:<mailbox>``),
+        threaded from :meth:`_dispatch` so PEX can key learned addresses on *who advertised
+        them* — the source-group eclipse defence (#94).
+        """
         if kind == "feed-request":
             return self._serve_feed(msg)
         elif kind == "knit-proposal":
@@ -637,25 +751,5 @@ class AsyncioP2PNode(BaseNode):
         elif kind == "equivocation-report":
             return self._handle_equivocation_report(msg)
         elif kind == PEER_EXCHANGE_KIND:
-            return self._handle_peer_exchange(msg)
+            return self._handle_peer_exchange(msg, source_id)
         return self._error("unknown-kind", str(kind))
-
-    async def _serve_connection(
-        self,
-        msg: dict,
-        writer: asyncio.StreamWriter,
-        peer_id: str,
-    ) -> None:
-        """Post-prologue TCP body: delegate to the shared carrier-agnostic dispatch.
-
-        The connection-level half of the Byzantine-consequence loop already
-        refused a banned peer and penalized any malformed/oversized frame in the
-        shared :meth:`BaseNode._handle_peer` prologue; here we route the decoded
-        request through the same carrier-agnostic :meth:`_dispatch` the relay
-        carrier funnels into directly.
-        """
-        try:
-            out = await self._dispatch(msg)
-            await write_frame(writer, out)
-        except (P2PError, ValueError) as exc:
-            await write_frame(writer, self._error("bad-request", str(exc)))

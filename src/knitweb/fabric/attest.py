@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 from ..core import canonical, crypto
 
-__all__ = ["Attestation", "attest", "verify_record"]
+__all__ = ["Attestation", "attest", "verify_record", "node_is_attested"]
 
 
 @dataclass(frozen=True)

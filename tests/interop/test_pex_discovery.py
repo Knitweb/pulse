@@ -137,3 +137,25 @@ def test_pex_bootstraps_over_a_relay_carrier():
             assert learned >= 1
 
     run(scenario())
+
+
+def test_pex_source_keys_by_advertiser_not_local():
+    """#94: inbound PEX keys learned addresses on the *advertiser's* source group, not the
+    fixed local group — restoring the addrbook new-table eclipse defence on the inbound
+    path. Previously every advertiser collapsed to ``source_group(None) == b"local:"``, so a
+    flood from one source competed with honest peers on equal footing."""
+    from knitweb.p2p.addrbook import source_group
+
+    tcp_a = AsyncioP2PNode._pex_source("tcp:203.0.113.7")    # /16 = 203.0
+    tcp_b = AsyncioP2PNode._pex_source("tcp:198.51.100.7")   # /16 = 198.51
+    assert source_group(tcp_a) != source_group(None)         # NOT collapsed to b"local:"
+    assert source_group(tcp_a) != source_group(tcp_b)        # distinct advertisers -> distinct groups
+    assert source_group(AsyncioP2PNode._pex_source("relay:mbox-a")) != source_group(None)  # relay keys per mailbox
+    # #161: a PROVEN ``node:<pubkey>`` keys on a STABLE per-identity group (not local,
+    # not the forgeable relay mailbox) so a relay sender rotating its self-asserted
+    # reply-to mailbox cannot mint unlimited source groups and spray new-table buckets.
+    node_src = AsyncioP2PNode._pex_source("node:deadbeef")
+    assert source_group(node_src) != source_group(None)        # proven key is NOT locally-heard
+    assert source_group(node_src) != source_group(AsyncioP2PNode._pex_source("relay:deadbeef"))  # distinct from a relay mailbox
+    assert source_group(node_src) == source_group(AsyncioP2PNode._pex_source("node:deadbeef"))   # stable per identity
+    assert AsyncioP2PNode._pex_source(None) is None             # absent -> locally-heard

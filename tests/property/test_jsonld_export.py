@@ -7,6 +7,7 @@ is interoperable with the same DKG primitives the anchor backend uses.
 """
 
 import pytest
+import copy
 
 from knitweb.core import canonical
 from knitweb.fabric.jsonld import (
@@ -14,6 +15,7 @@ from knitweb.fabric.jsonld import (
     EDGE_TYPE,
     JSONLD_CONTEXT,
     NODE_TYPE,
+    validate_edge_metadata,
     edges_of,
     export_web,
     import_web,
@@ -30,6 +32,20 @@ def _sample_web() -> Web:
     web.link(a, b, "supports", weight=3)
     web.link(b, c, "supports")
     web.link(a, c, "cites", weight=2)
+    return web
+
+
+def _sample_web_with_metadata() -> Web:
+    web = Web()
+    src = web.weave({"kind": "knowledge", "title": "source", "scope": "public"})
+    dst = web.weave({"kind": "knowledge", "title": "target", "scope": "public"})
+    web.link(
+        src,
+        dst,
+        "supports",
+        weight=1,
+        metadata={"reputation": 9, "deploy-location": "edge-studio", "debug-score": 0.5},
+    )
     return web
 
 
@@ -140,3 +156,65 @@ def test_empty_web_round_trips():
     doc = export_web(Web())
     assert doc["@graph"] == []
     assert export_web(import_web(doc)) == doc
+
+
+@pytest.mark.property
+def test_export_and_import_preserve_edge_metadata_annotations():
+    web = _sample_web_with_metadata()
+    doc = export_web(web)
+
+    graph = doc["@graph"]
+    source_node = next(node for node in graph if node.get("edges"))
+    edge = source_node["edges"][0]
+    assert edge["metadata"]["reputation"] == 9
+    assert edge["metadata"]["deploy-location"] == "edge-studio"
+    assert edge["metadata"]["debug-score"] == 0.5
+
+    rebuilt = import_web(doc)
+    first_src = source_node["id"]
+    first_edge = rebuilt._out[first_src][0]
+    assert first_edge.dst == edge["dst"]
+    assert rebuilt.edge_metadata(first_edge) == {
+        "reputation": 9,
+        "deploy-location": "edge-studio",
+        "debug-score": 0.5,
+    }
+
+
+@pytest.mark.property
+def test_metadata_validation_rejects_identity_keys():
+    web = _sample_web_with_metadata()
+    doc = export_web(web)
+    bad_doc = copy.deepcopy(doc)
+    source_node = next(node for node in bad_doc["@graph"] if node["edges"])
+    source_node["edges"][0]["metadata"] = {"email": "alice@example.com"}
+    with pytest.raises(ValueError, match="not allowed"):
+        import_web(bad_doc)
+
+    with pytest.raises(ValueError, match="unsupported edge metadata key"):
+        validate_edge_metadata({"phone-number": "555"})
+
+
+def test_multilingual_labels_become_language_tagged_literals():
+    """#39 / #22: a term-node's EN/RU/ZH/AR labels export as JSON-LD ``@language`` literals,
+    Arabic carrying ``@direction: 'rtl'``; the projection is lossless on round-trip and the
+    document stays canonical-CBOR-encodable."""
+    web = Web()
+    atom = web.weave(
+        {"kind": "concept", "key": "atom",
+         "labels": {"en": "atom", "ru": "атом", "zh": "原子",
+                    "ar": "ذرة"}}
+    )
+    plain = web.weave({"kind": "concept", "key": "n", "n": 1})  # no labels -> no `label` key
+    doc = export_web(web)
+    nodes = {n["id"]: n for n in doc["@graph"]}
+    labels = {o["@language"]: o for o in nodes[atom]["label"]}
+    assert set(labels) == {"en", "ru", "zh", "ar"}
+    assert labels["ar"]["@value"] == "ذرة"
+    assert labels["ar"]["@direction"] == "rtl"          # RTL base direction preserved
+    assert "@direction" not in labels["en"]             # LTR languages carry no direction
+    assert "label" not in nodes[plain]                  # label-less nodes are unchanged
+    assert "rdfs" in JSONLD_CONTEXT and "label" in JSONLD_CONTEXT
+    # lossless: `label` is a pure projection of the record, so the round-trip is byte-identical
+    assert canonical.encode(export_web(import_web(doc))) == canonical.encode(doc)
+    canonical.encode(doc)  # whole document stays canonical-CBOR-encodable (string/int only)
