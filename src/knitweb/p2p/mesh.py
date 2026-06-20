@@ -433,19 +433,26 @@ class Gossipsub:
         return out
 
     def _eligible_candidates(self, topic: str, mesh: set) -> List[str]:
-        """Candidate peers eligible to graft: subscribed, not meshed, score >= 0."""
+        """Candidate peers eligible to graft: subscribed, not meshed, score >= 0.
+
+        Returned **sorted** so the list handed to the RNG has a canonical order: a
+        ``set`` iterates in PYTHONHASHSEED-randomised order for strings, which would
+        otherwise make the downstream ``shuffle`` vary across processes even under a
+        fixed seed — breaking the module's "same seed -> same mesh" guarantee.
+        """
         candidates = self._topic_peers.get(topic, set()) - mesh
-        return [p for p in candidates if self.score_of(p) >= 0]
+        return sorted(p for p in candidates if self.score_of(p) >= 0)
 
     def _select_graft(self, topic: str, mesh: set, *, want: int) -> List[str]:
         if want <= 0:
             return []
-        eligible = self._eligible_candidates(topic, mesh)
+        eligible = self._eligible_candidates(topic, mesh)  # canonically sorted
         if not eligible:
             return []
-        # Shuffle first (deterministic via injected RNG) so equal-score peers are
-        # picked without insertion bias, then stable-sort by descending score so
-        # higher-scoring peers win. Refuse negative scores (already filtered).
+        # Shuffle a CANONICALLY-ORDERED list (deterministic via injected RNG) so
+        # equal-score peers are picked without insertion bias, then stable-sort by
+        # descending score so higher-scoring peers win. Sorting the set-derived list
+        # first is what makes the shuffle a pure function of (seed, contents).
         self._rng.shuffle(eligible)
         eligible.sort(key=lambda p: self.score_of(p), reverse=True)
         return eligible[:want]
@@ -453,7 +460,10 @@ class Gossipsub:
     def _select_prune(self, mesh: set, *, drop: int) -> List[str]:
         if drop <= 0:
             return []
-        members = list(mesh)
+        # sorted(), not list(): canonicalise the set-derived order before the seeded
+        # shuffle so prune selection is reproducible across processes (see
+        # _eligible_candidates).
+        members = sorted(mesh)
         self._rng.shuffle(members)
         # Lowest-scoring first: prune the least valuable mesh peers.
         members.sort(key=lambda p: self.score_of(p))
