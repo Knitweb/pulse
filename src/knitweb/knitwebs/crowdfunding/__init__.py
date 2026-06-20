@@ -35,14 +35,17 @@ from .campaign import (
     audit_outcome,
     audit_settlement,
     collect_pledges,
+    settlement_entries,
     verify_outcome,
     verify_settlement,
 )
+from .settlement import EscrowError, execute_settlement
 
 __all__ = [
     "Pledge", "CrowdfundingKnitweb", "PLEDGE_KIND",
     "Campaign", "CrowdfundingCampaign", "CAMPAIGN_KIND", "OUTCOME_KIND", "SETTLEMENT_KIND",
-    "verify_outcome", "audit_outcome", "verify_settlement", "audit_settlement", "collect_pledges",
+    "verify_outcome", "audit_outcome", "verify_settlement", "audit_settlement",
+    "settlement_entries", "collect_pledges", "execute_settlement", "EscrowError",
 ]
 
 

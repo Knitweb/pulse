@@ -34,6 +34,7 @@ __all__ = [
     "audit_outcome",
     "verify_settlement",
     "audit_settlement",
+    "settlement_entries",
     "collect_pledges",
 ]
 
@@ -195,12 +196,14 @@ def audit_outcome(outcome_att: Attestation, campaign_record: dict, pledges: list
     )
 
 
-def _settlement_record(outcome_record: dict, campaign_record: dict, pledges: list[dict],
-                       authority_addr: str) -> dict:
-    """The deterministic ``crowdfunding-settlement`` record — pure, unsigned.
+def settlement_entries(outcome_record: dict, campaign_record: dict,
+                       pledges: list[dict]) -> tuple[str, list[tuple[str, str, int]]]:
+    """Return ``(mode, entries)`` where each entry is ``(pledge_cid, payee, amount)``.
 
-    Recomputes the outcome from the pledges and requires the supplied ``outcome_record`` to
-    match it, so a settlement is always consistent with the certified outcome.
+    ``mode`` is ``release`` (payee = the campaign beneficiary) when the goal was met, else
+    ``refund`` (payee = the pledge's own pledger). Entries are sorted for determinism. Requires
+    the supplied ``outcome_record`` to be the honest outcome of these pledges. This is the
+    payout plan an executor turns into ledger transfers (see :mod:`...settlement`).
     """
     if outcome_record.get("kind") != OUTCOME_KIND:
         raise ValueError(f"not a {OUTCOME_KIND}: {outcome_record.get('kind')!r}")
@@ -214,12 +217,22 @@ def _settlement_record(outcome_record: dict, campaign_record: dict, pledges: lis
         raise ValueError("campaign has no beneficiary; cannot release a met goal")
 
     entries = []
-    total = 0
     for pledge in in_window:
         payee = beneficiary if mode == "release" else pledge["actor"]
         entries.append((canonical.cid(pledge), payee, pledge["amount"]))
-        total += pledge["amount"]
     entries.sort()
+    return mode, entries
+
+
+def _settlement_record(outcome_record: dict, campaign_record: dict, pledges: list[dict],
+                       authority_addr: str) -> dict:
+    """The deterministic ``crowdfunding-settlement`` record — pure, unsigned.
+
+    Recomputes the outcome from the pledges and requires the supplied ``outcome_record`` to
+    match it, so a settlement is always consistent with the certified outcome.
+    """
+    mode, entries = settlement_entries(outcome_record, campaign_record, pledges)
+    total = sum(amount for _cid, _payee, amount in entries)
     settlement_root = crypto.merkle_root(
         [crypto.sha256(canonical.encode([cid, payee, amount])) for cid, payee, amount in entries]
     ).hex()
