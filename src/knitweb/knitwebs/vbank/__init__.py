@@ -40,13 +40,16 @@ class Ballot:
     voter: str           # pls1 address of the holder's pairwise key
     scope_nullifier: str # one-person-one-vote dedup key (no identity)
     seq: int = 0         # re-vote counter; the highest seq for a nullifier wins in the tally
+    cast_at: int = 0     # epoch seconds the ballot was cast; counted only inside the poll window
 
     def __post_init__(self) -> None:
-        for name, value in (("choice", self.choice), ("seq", self.seq)):
+        for name, value in (("choice", self.choice), ("seq", self.seq), ("cast_at", self.cast_at)):
             if not isinstance(value, int) or isinstance(value, bool):
                 raise TypeError(f"ballot {name} must be an int")
         if self.seq < 0:
             raise ValueError("ballot seq must be >= 0")
+        if self.cast_at < 0:
+            raise ValueError("ballot cast_at must be >= 0")
 
 
 class VbankKnitweb:
@@ -82,6 +85,7 @@ class VbankKnitweb:
             "actor": ballot.voter,
             "scope_nullifier": ballot.scope_nullifier,
             "seq": ballot.seq,
+            "cast_at": ballot.cast_at,
         }
         # The record has a fixed key set (no caller-supplied keys), so the load-bearing
         # checks are a valid PLS author address + canonical encodability (rejects floats /

@@ -97,13 +97,25 @@ class VbankPoll:
         scope = poll_record["scope"]
         poll_id = poll_record["poll_id"]
         options = poll_record["options"]
+        opens_at = poll_record["opens_at"]
+        closes_at = poll_record["closes_at"]
 
+        # Only ballots cast inside the voting window count. Out-of-window ballots are
+        # excluded (the fabric is append-only, so we cannot stop them being emitted — only
+        # decline to count them); in-window ballots have their choice range-checked.
+        in_window = []
         for ballot in ballots:
+            cast_at = ballot.get("cast_at")
+            if not isinstance(cast_at, int) or isinstance(cast_at, bool):
+                raise ValueError("ballot cast_at must be an int")
+            if not (opens_at <= cast_at < closes_at):
+                continue
             choice = ballot.get("choice")
             if not isinstance(choice, int) or isinstance(choice, bool) or not (0 <= choice < options):
                 raise ValueError(f"ballot choice {choice!r} out of range 0..{options - 1}")
+            in_window.append(ballot)
 
-        counted = tally(scope, poll_id, ballots)
+        counted = tally(scope, poll_id, in_window)
         record = {
             "kind": RESULT_KIND,
             "scope": scope,

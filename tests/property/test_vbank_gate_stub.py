@@ -68,7 +68,7 @@ def test_ballot_record_carries_no_identity():
         Ballot(scope=SCOPE, poll_id="p1", choice=1, voter=addr, scope_nullifier=ticket.scope_nullifier),
         ticket,
     )
-    assert set(record) == {"kind", "scope", "poll_id", "choice", "actor", "scope_nullifier", "seq"}
+    assert set(record) == {"kind", "scope", "poll_id", "choice", "actor", "scope_nullifier", "seq", "cast_at"}
     # the only identity-like fields are the per-scope pairwise address and the nullifier
     assert record["scope_nullifier"] == scope_nullifier(secret, SCOPE)
 

@@ -26,10 +26,12 @@ def _nf(i: int) -> str:
     return crypto.sha256(f"voter-{i}".encode()).hex()
 
 
-def _ballot(nullifier: str, choice: int, seq: int = 0) -> dict:
+def _ballot(nullifier: str, choice: int, seq: int = 0, cast_at: int = 1500) -> dict:
+    # default cast_at 1500 is inside the test poll window [1000, 2000)
     return {
         "kind": BALLOT_KIND, "scope": SCOPE, "poll_id": POLL_ID, "choice": choice,
         "actor": "pls1" + nullifier[:16], "scope_nullifier": nullifier, "seq": seq,
+        "cast_at": cast_at,
     }
 
 
@@ -97,6 +99,35 @@ def test_result_is_deterministic_and_order_independent():
     a = authority.certify_result(poll_att.record, ballots)
     b = authority.certify_result(poll_att.record, list(reversed(ballots)))
     assert a.cid == b.cid  # content id is independent of ballot order
+
+
+@pytest.mark.property
+def test_ballots_outside_voting_window_are_excluded():
+    priv, authority = _authority()
+    poll_att = _poll(authority, options=3)  # window [1000, 2000)
+    ballots = [
+        _ballot(_nf(0), 0, cast_at=1500),   # in window  -> counts
+        _ballot(_nf(1), 1, cast_at=999),    # before opens_at -> excluded
+        _ballot(_nf(2), 2, cast_at=2000),   # == closes_at (exclusive) -> excluded
+        _ballot(_nf(3), 0, cast_at=2500),   # after close -> excluded
+    ]
+    res = authority.certify_result(poll_att.record, ballots)
+    assert res.record["total_voters"] == 1
+    assert res.record["results"] == [[0, 1]]
+
+
+@pytest.mark.property
+def test_out_of_window_revote_does_not_override_in_window_vote():
+    priv, authority = _authority()
+    poll_att = _poll(authority, options=3)
+    # same voter: in-window seq0 choice0, then a LATER (higher-seq) but out-of-window choice2
+    ballots = [
+        _ballot(_nf(0), 0, seq=0, cast_at=1500),
+        _ballot(_nf(0), 2, seq=1, cast_at=2500),  # higher seq but outside window -> ignored
+    ]
+    res = authority.certify_result(poll_att.record, ballots)
+    assert res.record["total_voters"] == 1
+    assert res.record["results"] == [[0, 1]]  # the in-window choice 0 stands
 
 
 @pytest.mark.property
