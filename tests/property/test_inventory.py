@@ -453,6 +453,41 @@ def test_byte_budget_never_partial_serves_a_body_preserving_identity():
         assert fr == store.lookup(cid)
 
 
+def test_unserved_oversized_body_does_not_burn_the_window_budget():
+    """A body too big to fit is deferred WITHOUT debiting the bucket.
+
+    The serve must debit only for bytes it actually serves. If an un-served body
+    (one that does not fit the remaining budget) still consumed ``min(want,
+    remaining)``, it would burn an honest peer's leftover window allowance and
+    deny it smaller bodies it could still afford this window — the governor would
+    punish honest peers past its stated ceiling.
+
+    LOAD-BEARING: a peer is given budget for the SMALL body but not the BIG one.
+    It first asks for the big body (deferred, 0 served) then — in the SAME window —
+    the small body it can afford. The small body MUST be served and the bucket must
+    show only the small debit. Reverting to ``take``-before-the-fit-check (debiting
+    the un-served big body) zeroes the bucket and the small body comes back empty.
+    """
+    store = FrameStore()
+    big_cid, big = store.put_record({"kind": "demo", "seq": 1, "payload": "X" * 4096})
+    small_cid, small = store.put_record({"kind": "demo", "seq": 2, "payload": "y"})
+    assert len(big) > len(small)
+    clock = _VirtualClock(0)
+    # Budget covers the small body but is one byte short of the big one.
+    budget = ServeBudget(bytes_per_window=len(big) - 1, window_seconds=5, clock=clock)
+    relay = InventoryRelay(store.lookup, budget=budget)
+
+    # Big body does not fit -> deferred, nothing served, budget untouched.
+    served_big = relay.on_getdata(build_getdata_frame([big_cid]), peer="peerH")
+    assert served_big == []
+    assert budget.remaining("peerH") == len(big) - 1  # NOT burned
+
+    # Same window: the affordable small body IS served (and is the verbatim frame).
+    served_small = relay.on_getdata(build_getdata_frame([small_cid]), peer="peerH")
+    assert served_small == [small]
+    assert budget.remaining("peerH") == len(big) - 1 - len(small)
+
+
 def test_byte_budget_under_honest_moderate_diff_serves_the_whole_diff():
     """An honest moderate diff is served IN FULL under the generous prod budget.
 

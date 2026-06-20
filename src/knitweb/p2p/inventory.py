@@ -685,13 +685,17 @@ class InventoryRelay:
                 raise InventoryError("frame lookup must return bytes or None")
             body = bytes(stored)
             if peer is not None:
-                # Debit the per-peer byte bucket. ``take`` returns how many bytes
-                # the budget permits right now; if it cannot cover this whole
-                # body, the peer is out of budget for this window — stop serving
-                # (defer the rest to a later window) rather than partial-serving a
-                # frame, which would corrupt byte-identity.
-                if self.budget.take(peer, len(body)) < len(body):
+                # Per-peer byte bucket. Peek the remaining budget and stop (defer
+                # the rest to a later window) when the whole body will not fit,
+                # rather than partial-serving a frame — that would corrupt
+                # byte-identity. Crucially we debit ONLY for a body we actually
+                # serve: calling ``take`` before the fit check would debit the
+                # bytes of the *un-served* body (``take`` consumes ``min(want,
+                # remaining)``), burning an honest peer's remaining window budget
+                # and denying it smaller bodies it could still afford this window.
+                if self.budget.remaining(peer) < len(body):
                     break
+                self.budget.take(peer, len(body))
             out.append(body)
         return out
 
