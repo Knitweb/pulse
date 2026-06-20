@@ -1,4 +1,4 @@
-"""Acceptance: a Votebank vote is impossible without a valid personhood ticket, and the
+"""Acceptance: a vBank vote is impossible without a valid personhood ticket, and the
 ballot never carries identity (mirrors roadmap line 53)."""
 
 import pytest
@@ -6,7 +6,7 @@ import pytest
 from knitweb.core import canonical, crypto
 from knitweb.fabric.attest import verify_record
 from knitweb.fabric.web import Web
-from knitweb.knitwebs.votebank import Ballot, VotebankKnitweb
+from knitweb.knitwebs.vbank import Ballot, VbankKnitweb
 from knitweb.personhood.gate import AnchorIndex, enroll, require_personhood
 from knitweb.personhood.nullifier import new_holder_secret, scope_nullifier
 from knitweb.personhood.pairwise import derive_pairwise_keypair, pairwise_address
@@ -15,7 +15,7 @@ from knitweb.personhood.revocation import RevocationLog
 from knitweb.personhood.verifier import Presentation, TrustedRPVerifier
 
 EUDI_ENTRY = b"eu-trusted-list:NL:pid-issuer"
-SCOPE = "votebank"
+SCOPE = "vbank"
 
 
 def _world():
@@ -50,7 +50,7 @@ def test_gated_ballot_emits_and_verifies():
     verifier, rp_priv, index, revlog = _world()
     secret = new_holder_secret()
     ticket, priv, addr = _enrolled_ticket(verifier, rp_priv, index, revlog, secret)
-    vb = VotebankKnitweb(SCOPE)
+    vb = VbankKnitweb(SCOPE)
     ballot = Ballot(scope=SCOPE, poll_id="p1", choice=1, voter=addr,
                     scope_nullifier=ticket.scope_nullifier)
     att = vb.emit(ballot, ticket, priv)
@@ -63,7 +63,7 @@ def test_ballot_record_carries_no_identity():
     verifier, rp_priv, index, revlog = _world()
     secret = new_holder_secret()
     ticket, priv, addr = _enrolled_ticket(verifier, rp_priv, index, revlog, secret)
-    vb = VotebankKnitweb(SCOPE)
+    vb = VbankKnitweb(SCOPE)
     record = vb.to_record(
         Ballot(scope=SCOPE, poll_id="p1", choice=1, voter=addr, scope_nullifier=ticket.scope_nullifier),
         ticket,
@@ -78,7 +78,7 @@ def test_ballot_with_mismatched_ticket_is_refused():
     verifier, rp_priv, index, revlog = _world()
     secret = new_holder_secret()
     ticket, priv, addr = _enrolled_ticket(verifier, rp_priv, index, revlog, secret)
-    vb = VotebankKnitweb(SCOPE)
+    vb = VbankKnitweb(SCOPE)
     # forge a ballot with a different nullifier than the ticket authorises
     forged = Ballot(scope=SCOPE, poll_id="p1", choice=1, voter=addr,
                     scope_nullifier=crypto.sha256(b"not-mine").hex())
@@ -102,7 +102,7 @@ def test_two_voters_have_distinct_nullifiers_and_can_both_weave():
         secret = crypto.sha256(tag) + crypto.sha256(tag + b"!")  # 64 bytes -> take 32
         secret = secret[:32]
         ticket, priv, addr = _enrolled_ticket(verifier, rp_priv, index, revlog, secret)
-        vb = VotebankKnitweb(SCOPE)
+        vb = VbankKnitweb(SCOPE)
         ballot = Ballot(scope=SCOPE, poll_id="p1", choice=1, voter=addr,
                         scope_nullifier=ticket.scope_nullifier)
         cid, att = vb.weave(ballot, ticket, priv, web)
@@ -116,7 +116,7 @@ def test_a_ballot_signed_by_a_non_voter_key_fails():
     verifier, rp_priv, index, revlog = _world()
     secret = new_holder_secret()
     ticket, _priv, addr = _enrolled_ticket(verifier, rp_priv, index, revlog, secret)
-    vb = VotebankKnitweb(SCOPE)
+    vb = VbankKnitweb(SCOPE)
     ballot = Ballot(scope=SCOPE, poll_id="p1", choice=1, voter=addr,
                     scope_nullifier=ticket.scope_nullifier)
     other_priv, _ = crypto.generate_keypair()

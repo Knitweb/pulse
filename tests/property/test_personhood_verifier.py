@@ -49,9 +49,9 @@ def test_trusted_rp_is_a_presentation_verifier():
 @pytest.mark.property
 def test_admission_derives_expected_nullifier_and_pairwise():
     secret = new_holder_secret()
-    adm = _verifier().verify_presentation("votebank", _presentation(secret))
-    assert adm.scope_nullifier == scope_nullifier(secret, "votebank")
-    _, pub = derive_pairwise_keypair(secret, "votebank")
+    adm = _verifier().verify_presentation("vbank", _presentation(secret))
+    assert adm.scope_nullifier == scope_nullifier(secret, "vbank")
+    _, pub = derive_pairwise_keypair(secret, "vbank")
     assert adm.holder_pairwise == pairwise_address(pub)
     assert adm.pairwise_did == f"did:pls:{pairwise_address(pub)}"
     assert adm.issuer_class == ISSUER_CLASS_EUDI_PID
@@ -59,7 +59,7 @@ def test_admission_derives_expected_nullifier_and_pairwise():
 
 @pytest.mark.property
 def test_admission_carries_no_pii_fields():
-    adm = _verifier().verify_presentation("votebank", _presentation(new_holder_secret()))
+    adm = _verifier().verify_presentation("vbank", _presentation(new_holder_secret()))
     fields = set(vars(adm))
     forbidden = {"name", "full_name", "dob", "date_of_birth", "national_id", "pid"}
     assert fields.isdisjoint(forbidden)
@@ -68,7 +68,7 @@ def test_admission_carries_no_pii_fields():
 @pytest.mark.property
 def test_non_eudi_fallback_issuer_is_accepted():
     secret = new_holder_secret()
-    adm = _verifier().verify_presentation("votebank", _presentation(secret, issuer=FALLBACK_ENTRY))
+    adm = _verifier().verify_presentation("vbank", _presentation(secret, issuer=FALLBACK_ENTRY))
     assert adm.issuer_class == ISSUER_CLASS_NON_EUDI_FALLBACK
 
 
@@ -76,7 +76,7 @@ def test_non_eudi_fallback_issuer_is_accepted():
 def test_unregistered_issuer_rejected():
     with pytest.raises(NotPersonError):
         _verifier().verify_presentation(
-            "votebank", _presentation(new_holder_secret(), issuer=b"rogue-issuer")
+            "vbank", _presentation(new_holder_secret(), issuer=b"rogue-issuer")
         )
 
 
@@ -84,13 +84,13 @@ def test_unregistered_issuer_rejected():
 @pytest.mark.parametrize("kwargs", [{"age": False}, {"unique": False}, {"nb": 5, "na": 5}])
 def test_failed_personhood_claims_rejected(kwargs):
     with pytest.raises(NotPersonError):
-        _verifier().verify_presentation("votebank", _presentation(new_holder_secret(), **kwargs))
+        _verifier().verify_presentation("vbank", _presentation(new_holder_secret(), **kwargs))
 
 
 @pytest.mark.property
 def test_zk_backend_is_dependency_gated():
     with pytest.raises(NotImplementedError):
-        ZkVerifier().verify_presentation("votebank", _presentation(new_holder_secret()))
+        ZkVerifier().verify_presentation("vbank", _presentation(new_holder_secret()))
 
 
 @pytest.mark.property
@@ -105,10 +105,10 @@ def test_constructor_rejects_unknown_issuer_class():
 def test_admission_bridges_into_a_co_signed_anchor():
     secret = new_holder_secret()
     verifier_priv, _ = crypto.generate_keypair()
-    adm = _verifier().verify_presentation("votebank", _presentation(secret))
-    holder_priv, _ = derive_pairwise_keypair(secret, "votebank")
+    adm = _verifier().verify_presentation("vbank", _presentation(secret))
+    holder_priv, _ = derive_pairwise_keypair(secret, "vbank")
     revptr = crypto.sha256(b"random-revocation-commitment").hex()
     anchor = anchor_from_admission(adm, verifier_priv, holder_priv, revocation_pointer=revptr)
     assert anchor.verify()
-    assert anchor.record["scope_nullifier"] == scope_nullifier(secret, "votebank")
+    assert anchor.record["scope_nullifier"] == scope_nullifier(secret, "vbank")
     assert anchor.record["revocation_pointer"] == revptr

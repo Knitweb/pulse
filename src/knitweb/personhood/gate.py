@@ -1,4 +1,4 @@
-"""The personhood gate — what Votebank and crowdfunding call before accepting an action.
+"""The personhood gate — what vBank and crowdfunding call before accepting an action.
 
 Two operations:
 

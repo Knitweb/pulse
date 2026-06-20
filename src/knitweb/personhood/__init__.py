@@ -1,4 +1,4 @@
-"""Personhood — the sybil-resistance foundation for Votebank (voting + crowdfunding).
+"""Personhood — the sybil-resistance foundation for vBank (voting + crowdfunding).
 
 This layer (L3.5, between the L3 fabric and the L5 domain knitwebs) turns an off-fabric
 eIDAS / EUDI-Wallet personhood check into a **revocable, privacy-preserving proof** that

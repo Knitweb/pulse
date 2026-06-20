@@ -1,6 +1,6 @@
 """Personhood record schemas — the *only* identity data allowed on the fabric.
 
-The Votebank guardrail (``docs/DOMAIN_KNITWEB_INTERFACE.md``) is absolute: the
+The vBank guardrail (``docs/DOMAIN_KNITWEB_INTERFACE.md``) is absolute: the
 append-only, replicated fabric must never carry raw identity data. So personhood is
 represented by exactly two record kinds, both **integer/bytes only** and both passed
 through a **deny-by-default field whitelist** — any field outside the whitelist is a

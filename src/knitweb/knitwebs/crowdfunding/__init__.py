@@ -2,7 +2,7 @@
 
 The second consumer of the personhood foundation, proving the same revocable proof anchors
 **both** voting and crowdfunding (the owner's mandate). It reuses the identical gate as
-``votebank``: ``CrowdfundingKnitweb.emit`` refuses a pledge unless handed a
+``vbank``: ``CrowdfundingKnitweb.emit`` refuses a pledge unless handed a
 :class:`~knitweb.personhood.gate.PersonhoodTicket` matching the campaign scope, pledger, and
 nullifier.
 

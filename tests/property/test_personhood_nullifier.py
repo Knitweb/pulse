@@ -20,8 +20,8 @@ from knitweb.personhood.records import ISSUER_CLASS_EUDI_PID
 @pytest.mark.property
 def test_nullifier_is_deterministic_and_32_bytes():
     secret = b"\x01" * SECRET_BYTES
-    n1 = scope_nullifier(secret, "votebank")
-    n2 = scope_nullifier(secret, "votebank")
+    n1 = scope_nullifier(secret, "vbank")
+    n2 = scope_nullifier(secret, "vbank")
     assert n1 == n2
     assert crypto.is_valid_hex(n1, 32)
 
@@ -37,21 +37,21 @@ def test_same_person_different_scope_is_unlinkable():
 @pytest.mark.property
 def test_different_people_same_scope_differ():
     s1, s2 = new_holder_secret(), new_holder_secret()
-    assert scope_nullifier(s1, "votebank") != scope_nullifier(s2, "votebank")
+    assert scope_nullifier(s1, "vbank") != scope_nullifier(s2, "vbank")
 
 
 @pytest.mark.property
 def test_double_register_in_scope_yields_same_nullifier():
     # The basis for gate-level AlreadyRegistered detection: one person, one nullifier/scope.
     secret = new_holder_secret()
-    assert scope_nullifier(secret, "votebank") == scope_nullifier(secret, "votebank")
+    assert scope_nullifier(secret, "vbank") == scope_nullifier(secret, "vbank")
 
 
 @pytest.mark.property
 @pytest.mark.parametrize("bad_secret", [b"", b"\x00" * 31, b"\x00" * 33, "not-bytes"])
 def test_bad_secret_length_rejected(bad_secret):
     with pytest.raises(ValueError):
-        scope_nullifier(bad_secret, "votebank")
+        scope_nullifier(bad_secret, "vbank")
 
 
 @pytest.mark.property
@@ -63,8 +63,8 @@ def test_empty_scope_rejected():
 @pytest.mark.property
 def test_pairwise_keypair_is_deterministic_per_scope():
     secret = new_holder_secret()
-    p1 = derive_pairwise_keypair(secret, "votebank")
-    p2 = derive_pairwise_keypair(secret, "votebank")
+    p1 = derive_pairwise_keypair(secret, "vbank")
+    p2 = derive_pairwise_keypair(secret, "vbank")
     assert p1 == p2
 
 
@@ -105,7 +105,7 @@ def test_pairwise_rejection_samples_out_of_range_scalar(monkeypatch):
         return real(data)
 
     monkeypatch.setattr(pw.crypto, "sha256", fake)
-    priv, _pub = pw.derive_pairwise_keypair(b"\x07" * 32, "votebank")
+    priv, _pub = pw.derive_pairwise_keypair(b"\x07" * 32, "vbank")
     assert 0 < int(priv, 16) < n
     assert calls["i"] >= 2  # it rehashed past the invalid scalar
 
@@ -115,7 +115,7 @@ def test_nullifier_and_pairwise_compose_into_a_valid_anchor():
     # End-to-end: holder derivations feed straight into the anchor schema.
     verifier_priv, verifier_pub = crypto.generate_keypair()
     secret = new_holder_secret()
-    scope = "votebank"
+    scope = "vbank"
     _, holder_pub = derive_pairwise_keypair(secret, scope)
     record = build_anchor_record(
         verifier=crypto.address(verifier_pub),

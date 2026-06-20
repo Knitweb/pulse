@@ -1,10 +1,10 @@
-"""Votebank (minimal stub) — a vote is impossible without a personhood ticket.
+"""vBank (minimal stub) — a vote is impossible without a personhood ticket.
 
-This is *not* the full Votebank app (that is Step 5 of the adoption roadmap). It is the
+This is *not* the full vBank app (that is Step 5 of the adoption roadmap). It is the
 smallest domain knitweb that proves the personhood foundation is consumed as a gate rather
-than bolted on: :meth:`VotebankKnitweb.emit` refuses to produce a ballot unless it is handed
+than bolted on: :meth:`VbankKnitweb.emit` refuses to produce a ballot unless it is handed
 a :class:`~knitweb.personhood.gate.PersonhoodTicket` that matches the ballot's scope, voter,
-and nullifier. The dependency points one way — votebank imports ``personhood``, never the
+and nullifier. The dependency points one way — vbank imports ``personhood``, never the
 reverse.
 
 A ballot record carries the **scope nullifier** (the one-person-one-vote dedup key) and the
@@ -23,7 +23,7 @@ from ...fabric.attest import Attestation, attest
 from ...fabric.web import Web
 from ...personhood.gate import PersonhoodTicket
 
-__all__ = ["Ballot", "VotebankKnitweb"]
+__all__ = ["Ballot", "VbankKnitweb"]
 
 
 @dataclass(frozen=True)
@@ -41,10 +41,10 @@ class Ballot:
             raise TypeError("ballot choice must be an int")
 
 
-class VotebankKnitweb:
+class VbankKnitweb:
     """Emits signed ballots — but only against a valid personhood ticket."""
 
-    KIND = "votebank-ballot"
+    KIND = "vbank-ballot"
 
     def __init__(self, scope: str) -> None:
         if not scope:

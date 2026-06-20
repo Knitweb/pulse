@@ -34,7 +34,7 @@ def _valid_anchor():
         holder_pairwise=crypto.address(holder_pub),
         issuer_trust_anchor=_hex32(b"eu-trusted-list-entry"),
         issuer_class=ISSUER_CLASS_EUDI_PID,
-        scope="votebank",
+        scope="vbank",
         scope_nullifier=_hex32(b"nullifier"),
         not_before=1_000,
         not_after=2_000,
@@ -73,7 +73,7 @@ def test_float_in_int_field_is_rejected():
             holder_pairwise=crypto.address(holder_pub),
             issuer_trust_anchor=_hex32(b"a"),
             issuer_class=ISSUER_CLASS_EUDI_PID,
-            scope="votebank",
+            scope="vbank",
             scope_nullifier=_hex32(b"n"),
             not_before=1.0,  # float — refused before any signature
             not_after=2_000,
@@ -124,7 +124,7 @@ def test_cannot_co_sign_under_someone_elses_verifier_address():
         holder_pairwise=crypto.address(holder_pub),
         issuer_trust_anchor=_hex32(b"a"),
         issuer_class=ISSUER_CLASS_EUDI_PID,
-        scope="votebank",
+        scope="vbank",
         scope_nullifier=_hex32(b"n"),
         not_before=1,
         not_after=2,
@@ -162,7 +162,7 @@ def test_verifier_and_holder_must_be_distinct_keys():
             holder_pairwise=addr,  # same key for both roles -> refused at the schema layer
             issuer_trust_anchor=_hex32(b"a"),
             issuer_class=ISSUER_CLASS_EUDI_PID,
-            scope="votebank",
+            scope="vbank",
             scope_nullifier=_hex32(b"n"),
             not_before=1,
             not_after=2,
@@ -176,7 +176,7 @@ def test_revoke_record_round_trips_and_rejects_pii():
     verifier_priv, verifier_pub = crypto.generate_keypair()
     revoke = records.build_revoke_record(
         verifier=crypto.address(verifier_pub),
-        scope="votebank",
+        scope="vbank",
         revocation_pointer=_hex32(b"revptr"),
         revoked_at=1_234,
         reason_code=records.REASON_ART17_ERASURE,

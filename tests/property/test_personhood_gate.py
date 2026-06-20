@@ -17,7 +17,7 @@ from knitweb.personhood.revocation import RevocationLog
 from knitweb.personhood.verifier import Presentation, TrustedRPVerifier
 
 EUDI_ENTRY = b"eu-trusted-list:NL:pid-issuer"
-SCOPE = "votebank"
+SCOPE = "vbank"
 
 
 def _setup():

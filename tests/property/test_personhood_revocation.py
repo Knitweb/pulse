@@ -18,7 +18,7 @@ def _ptr(i: int) -> str:
 
 def _log():
     priv, _ = crypto.generate_keypair()
-    return RevocationLog(priv, scope="votebank")
+    return RevocationLog(priv, scope="vbank")
 
 
 @pytest.mark.property
@@ -95,8 +95,8 @@ def test_equivocation_is_detectable_on_the_revoke_feed():
     # Two logs under the SAME authority key that revoke different pointers first commit to
     # two different roots at the same (length, fork) -> provable equivocation.
     priv, _ = crypto.generate_keypair()
-    a = RevocationLog(priv, scope="votebank")
-    b = RevocationLog(priv, scope="votebank")
+    a = RevocationLog(priv, scope="vbank")
+    b = RevocationLog(priv, scope="vbank")
     head_a = a.revoke(_ptr(1), revoked_at=10)
     head_b = b.revoke(_ptr(2), revoked_at=10)
     assert head_a.length == head_b.length == 1

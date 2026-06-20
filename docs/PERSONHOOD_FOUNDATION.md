@@ -1,7 +1,7 @@
-# Personhood Foundation — privacy-preserving sybil resistance for Votebank
+# Personhood Foundation — privacy-preserving sybil resistance for vBank
 
 `knitweb.personhood` is the **foundation layer** (L3.5, between the L3 fabric and the L5
-domain knitwebs) that lets Votebank — voting **and** crowdfunding — gate actions on "this is
+domain knitwebs) that lets vBank — voting **and** crowdfunding — gate actions on "this is
 a verified unique EU natural person" **without ever putting identity on the fabric**. It is
 built as a foundation, not a bolt-on, because the privacy model cannot be retrofitted: the
 fabric is append-only, content-addressed and replicated, so once a linkable identifier is
@@ -64,14 +64,14 @@ anchor. Swapping the backend changes nothing on the fabric:
   import so importing `personhood` never pulls a SNARK/pairing toolchain (unavailable on this
   PEP-668 box — see `DEPENDENCY_READINESS.md`). It raises a clear "dependency-gated" error.
 
-## The gate Votebank consumes
+## The gate vBank consumes
 
 `gate.enroll(...)` admits a person into a scope once (refusing a second anchor for the same
 nullifier). `gate.require_personhood(...)` gates an action — verify, require an anchor, check
 the validity window, check epoch-pinned non-revocation — and returns a `PersonhoodTicket`.
 The ticket authorizes *an action* but is **decoupled from the action's content signature**
 (the ballot/pledge is signed by the pairwise key), which is the seam receipt-freeness / a ZK
-content layer slots into later. The minimal `knitwebs/votebank` stub proves the consumption:
+content layer slots into later. The minimal `knitwebs/vbank` stub proves the consumption:
 a ballot is impossible without a matching ticket and carries the nullifier, never identity.
 
 ## Irreversible decisions locked on day one
@@ -102,9 +102,9 @@ shippable — hence the phase-1 trusted-RP backend with the ZK seam pre-wired.
 ## Build & test
 
 ```bash
-PYTHONPATH=src python3 -m pytest tests/property/test_personhood_*.py tests/property/test_votebank_gate_stub.py -q
+PYTHONPATH=src python3 -m pytest tests/property/test_personhood_*.py tests/property/test_vbank_gate_stub.py -q
 PYTHONPATH=src python3 -m pytest tests/property -q   # full regression
 ```
 
 Modules: `src/knitweb/personhood/{records,nullifier,pairwise,status_tree,revocation,
-verifier,gate,anchor,errors}.py`; consumer stub `src/knitweb/knitwebs/votebank/`.
+verifier,gate,anchor,errors}.py`; consumer stub `src/knitweb/knitwebs/vbank/`.
