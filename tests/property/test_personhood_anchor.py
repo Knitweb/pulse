@@ -9,9 +9,9 @@ holder pairwise key) kept outside the content id.
 import pytest
 
 from knitweb.core import canonical, crypto
-from knitweb.fabric.attest import verify_record
+from knitweb.fabric.attest import attest, verify_record
 from knitweb.personhood import records
-from knitweb.personhood.anchor import co_sign_anchor
+from knitweb.personhood.anchor import CoSignedAnchor, co_sign_anchor
 from knitweb.personhood.records import (
     ANCHOR_KIND,
     ISSUER_CLASS_EUDI_PID,
@@ -142,6 +142,20 @@ def test_tampered_record_fails_co_signature():
     forged = dict(anchor.record, scope_nullifier=_hex32(b"swapped"))
     assert not verify_record(forged, anchor.verifier_att.author_pub, anchor.verifier_att.sig, "verifier")
     assert not verify_record(forged, anchor.holder_att.author_pub, anchor.holder_att.sig, "holder_pairwise")
+
+
+@pytest.mark.property
+def test_verify_rejects_signed_anchor_that_bypasses_schema_builder():
+    # External anchors may arrive already signed, so verify() must enforce the same
+    # anti-PII whitelist as the local builder. Valid signatures alone are not enough.
+    verifier_priv, holder_priv, record = _valid_anchor()
+    leaked = dict(record, full_name="Jane Doe")
+    anchor = CoSignedAnchor(
+        record=leaked,
+        verifier_att=attest(leaked, verifier_priv, author_field="verifier"),
+        holder_att=attest(leaked, holder_priv, author_field="holder_pairwise"),
+    )
+    assert not anchor.verify()
 
 
 @pytest.mark.property

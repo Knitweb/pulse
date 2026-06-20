@@ -41,6 +41,10 @@ class CoSignedAnchor:
 
     def verify(self) -> bool:
         """True iff two *distinct* keys validly signed the *same* record."""
+        try:
+            records.assert_personhood_record_shape(self.record, kind=records.ANCHOR_KIND)
+        except (TypeError, ValueError):
+            return False
         if self.verifier_att.record != self.record:
             return False
         if self.holder_att.record != self.record:

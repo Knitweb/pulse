@@ -3,7 +3,7 @@
 import pytest
 
 from knitweb.core import crypto
-from knitweb.fabric.attest import attest, verify_record
+from knitweb.fabric.attest import attest, node_is_attested, verify_record
 from knitweb.fabric.items import KnowledgeItem, ResourceItem, web_state_root
 from knitweb.fabric.web import Web
 
@@ -62,6 +62,15 @@ def test_verify_record_returns_false_on_malformed_pubkey_or_record():
     assert verify_record(att.record, "not-hex!!", att.sig, "author") is False
     assert verify_record(att.record, "abc", att.sig, "author") is False     # odd-length hex
     assert verify_record([1, 2, 3], att.author_pub, att.sig, "author") is False  # non-dict
+
+
+@pytest.mark.property
+def test_node_is_attested_uses_web_membership_for_legacy_records():
+    web = Web()
+    cid = web.weave({"kind": "knowledge", "title": "legacy", "author": "alice"})
+    assert node_is_attested(web, cid) is True
+    assert node_is_attested(web, "ff" * 8) is False
+    assert node_is_attested(object(), cid) is False
 
 
 @pytest.mark.property
