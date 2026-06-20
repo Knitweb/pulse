@@ -18,10 +18,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ...core import crypto
+from ...core import canonical, crypto
 from ...fabric.attest import Attestation, attest
 from ...fabric.web import Web
 from ...personhood.gate import PersonhoodTicket
-from ..base import assert_domain_record_shape
 
 __all__ = ["Ballot", "VotebankKnitweb"]
 
@@ -74,7 +74,12 @@ class VotebankKnitweb:
             "actor": ballot.voter,
             "scope_nullifier": ballot.scope_nullifier,
         }
-        assert_domain_record_shape(record, kind=self.KIND, author_field="actor")
+        # The record has a fixed key set (no caller-supplied keys), so the load-bearing
+        # checks are a valid PLS author address + canonical encodability (rejects floats /
+        # non-deterministic content). Kept self-contained on committed core primitives.
+        if not crypto.is_valid_address(record["actor"]):
+            raise ValueError("ballot actor must be a current PLS address")
+        canonical.encode(record)
         return record
 
     def emit(self, ballot: Ballot, ticket: PersonhoodTicket, voter_priv: str) -> Attestation:

@@ -21,10 +21,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ...core import canonical, crypto
 from ...fabric.attest import Attestation, attest
 from ...fabric.web import Web
 from ...personhood.gate import PersonhoodTicket
-from ..base import assert_domain_record_shape
 
 __all__ = ["Pledge", "CrowdfundingKnitweb"]
 
@@ -77,7 +77,11 @@ class CrowdfundingKnitweb:
             "actor": pledge.pledger,
             "scope_nullifier": pledge.scope_nullifier,
         }
-        assert_domain_record_shape(record, kind=self.KIND, author_field="actor")
+        # Fixed key set (no caller-supplied keys); the load-bearing checks are a valid PLS
+        # author address + canonical encodability (rejects floats). Self-contained on core.
+        if not crypto.is_valid_address(record["actor"]):
+            raise ValueError("pledger must be a current PLS address")
+        canonical.encode(record)
         return record
 
     def emit(self, pledge: Pledge, ticket: PersonhoodTicket, pledger_priv: str) -> Attestation:

@@ -7,8 +7,8 @@ proof — never PII — so the privacy model is built in from day one rather tha
 onto an append-only fabric (which is impossible).
 
 Dependency rule: domain apps import ``personhood``; ``personhood`` never imports an app.
-It depends only on ``core``, ``fabric.attest``/``fabric.feed``, and ``knitwebs.base``
-constants.
+It depends only on committed ``core`` and ``fabric`` primitives — never on the L5 knitweb
+plugin layer.
 """
 
 from __future__ import annotations

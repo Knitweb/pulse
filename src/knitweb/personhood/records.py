@@ -38,7 +38,13 @@ Design notes locked here (irreversible once data exists — see the plan):
 from __future__ import annotations
 
 from ..core import canonical, crypto
-from ..knitwebs.base import RESERVED_RECORD_KEYS, RESERVED_TRANSPORT_PREFIXES
+
+# Keys that belong in the attestation/transport envelope, never inside a signed record.
+# Defined locally so this foundation depends only on committed core/fabric primitives (and
+# does not reach up into the L5 knitweb plugin layer); they mirror the same envelope keys the
+# domain-knitweb contract reserves.
+RESERVED_RECORD_KEYS = frozenset({"sig", "signature", "author_pub"})
+RESERVED_TRANSPORT_PREFIXES = ("_relay_",)
 
 __all__ = [
     "PersonhoodSchemaError",
