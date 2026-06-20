@@ -21,12 +21,24 @@ from ...core import canonical, crypto
 from ...fabric.attest import Attestation, attest
 from ...fabric.web import Web
 from ...personhood.gate import PersonhoodTicket
+from .liquid import (
+    DELEGATION_KIND,
+    LIQUID_RESULT_KIND,
+    Delegation,
+    collect_delegations,
+    delegation_map,
+    emit_delegation,
+    liquid_results,
+    resolve_liquid,
+)
 from .poll import POLL_KIND, RESULT_KIND, Poll, VbankPoll, audit_result, verify_result
 from .tally import BALLOT_KIND, TALLY_KIND, collect_ballots, tally
 
 __all__ = [
     "Ballot", "VbankKnitweb", "tally", "collect_ballots", "BALLOT_KIND", "TALLY_KIND",
     "Poll", "VbankPoll", "POLL_KIND", "RESULT_KIND", "verify_result", "audit_result",
+    "Delegation", "emit_delegation", "collect_delegations", "delegation_map",
+    "resolve_liquid", "liquid_results", "DELEGATION_KIND", "LIQUID_RESULT_KIND",
 ]
 
 
