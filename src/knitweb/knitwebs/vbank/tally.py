@@ -21,11 +21,30 @@ from __future__ import annotations
 from typing import Iterable, List
 
 from ...core import canonical, crypto
+from ...fabric.web import Web
 
-__all__ = ["BALLOT_KIND", "TALLY_KIND", "tally"]
+__all__ = ["BALLOT_KIND", "TALLY_KIND", "tally", "collect_ballots"]
 
 BALLOT_KIND = "vbank-ballot"
 TALLY_KIND = "vbank-tally"
+
+
+def collect_ballots(web: Web, scope: str, poll_id: str) -> List[dict]:
+    """Read every ``vbank-ballot`` record for ``(scope, poll_id)`` out of a woven Web.
+
+    Closes the fabric loop: ballots woven via :meth:`VbankKnitweb.weave` are read back for
+    certification. Returned in deterministic CID order (the tally is order-independent
+    regardless, but a stable order keeps downstream reproducible).
+    """
+    found = [
+        record
+        for record in web.nodes.values()
+        if record.get("kind") == BALLOT_KIND
+        and record.get("scope") == scope
+        and record.get("poll_id") == poll_id
+    ]
+    found.sort(key=canonical.cid)
+    return found
 
 
 def tally(scope: str, poll_id: str, ballots: Iterable[dict],

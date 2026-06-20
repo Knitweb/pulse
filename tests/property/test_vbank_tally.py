@@ -3,7 +3,8 @@
 import pytest
 
 from knitweb.core import canonical, crypto
-from knitweb.knitwebs.vbank import BALLOT_KIND, TALLY_KIND, tally
+from knitweb.fabric.web import Web
+from knitweb.knitwebs.vbank import BALLOT_KIND, TALLY_KIND, collect_ballots, tally
 
 SCOPE = "vbank"
 POLL = "p1"
@@ -85,6 +86,27 @@ def test_wrong_scope_or_poll_rejected():
         tally(SCOPE, POLL, [_ballot(_nf(0), 0, scope="other")])
     with pytest.raises(ValueError):
         tally(SCOPE, POLL, [_ballot(_nf(0), 0, poll="other-poll")])
+
+
+@pytest.mark.property
+def test_collect_ballots_from_web_then_tally():
+    web = Web()
+    b0, b1 = _ballot(_nf(0), 0), _ballot(_nf(1), 1)
+    web.weave(b0)
+    web.weave(b1)
+    web.weave({"kind": "knowledge-item", "scope": SCOPE, "poll_id": POLL})  # noise: not a ballot
+    web.weave(dict(_ballot(_nf(2), 0), poll_id="other-poll"))               # other poll
+    web.weave(dict(_ballot(_nf(3), 1), scope="other-scope"))                # other scope
+
+    collected = collect_ballots(web, SCOPE, POLL)
+    assert len(collected) == 2
+    # tallying the collected set equals tallying the originals (closes the fabric loop)
+    assert tally(SCOPE, POLL, collected) == tally(SCOPE, POLL, [b0, b1])
+
+
+@pytest.mark.property
+def test_collect_ballots_empty_web():
+    assert collect_ballots(Web(), SCOPE, POLL) == []
 
 
 @pytest.mark.property
