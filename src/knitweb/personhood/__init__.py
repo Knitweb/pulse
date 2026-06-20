@@ -13,8 +13,9 @@ constants.
 
 from __future__ import annotations
 
-from . import anchor, errors, nullifier, pairwise, records, revocation, status_tree, verifier
+from . import anchor, errors, gate, nullifier, pairwise, records, revocation, status_tree, verifier
 from .anchor import CoSignedAnchor, anchor_from_admission, co_sign_anchor
+from .gate import AnchorIndex, PersonhoodTicket, enroll, require_personhood
 from .errors import (
     AlreadyRegisteredError,
     ExpiredError,
@@ -76,6 +77,11 @@ __all__ = [
     "anchor_from_admission",
     "errors",
     "verifier",
+    "gate",
+    "AnchorIndex",
+    "PersonhoodTicket",
+    "enroll",
+    "require_personhood",
     "PersonhoodError",
     "NotPersonError",
     "AlreadyRegisteredError",
