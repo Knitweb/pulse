@@ -29,17 +29,20 @@ from .campaign import (
     CAMPAIGN_KIND,
     OUTCOME_KIND,
     PLEDGE_KIND,
+    SETTLEMENT_KIND,
     Campaign,
     CrowdfundingCampaign,
     audit_outcome,
+    audit_settlement,
     collect_pledges,
     verify_outcome,
+    verify_settlement,
 )
 
 __all__ = [
     "Pledge", "CrowdfundingKnitweb", "PLEDGE_KIND",
-    "Campaign", "CrowdfundingCampaign", "CAMPAIGN_KIND", "OUTCOME_KIND",
-    "verify_outcome", "audit_outcome", "collect_pledges",
+    "Campaign", "CrowdfundingCampaign", "CAMPAIGN_KIND", "OUTCOME_KIND", "SETTLEMENT_KIND",
+    "verify_outcome", "audit_outcome", "verify_settlement", "audit_settlement", "collect_pledges",
 ]
 
 

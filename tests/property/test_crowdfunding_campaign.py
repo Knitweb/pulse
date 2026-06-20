@@ -8,12 +8,17 @@ from knitweb.knitwebs.crowdfunding import (
     CAMPAIGN_KIND,
     OUTCOME_KIND,
     PLEDGE_KIND,
+    SETTLEMENT_KIND,
     Campaign,
     CrowdfundingCampaign,
     audit_outcome,
+    audit_settlement,
     collect_pledges,
     verify_outcome,
+    verify_settlement,
 )
+
+BENEFICIARY = crypto.address(crypto.generate_keypair()[1])
 
 SCOPE = "campaign-7"
 
@@ -23,8 +28,9 @@ def _authority():
     return priv, CrowdfundingCampaign(priv, SCOPE)
 
 
-def _campaign(authority: CrowdfundingCampaign, goal: int = 1000):
-    return authority.define(Campaign(scope=SCOPE, goal=goal, opens_at=1000, closes_at=2000))
+def _campaign(authority: CrowdfundingCampaign, goal: int = 1000, beneficiary: str = ""):
+    return authority.define(Campaign(scope=SCOPE, goal=goal, opens_at=1000, closes_at=2000,
+                                     beneficiary=beneficiary))
 
 
 def _nf(i: int) -> str:
@@ -142,6 +148,70 @@ def test_collect_pledges_from_web():
     web.weave(dict(_pledge(_nf(2), 300), scope="other-campaign"))      # other scope
     got = collect_pledges(web, SCOPE)
     assert len(got) == 2
+
+
+@pytest.mark.property
+def test_settlement_release_when_goal_met():
+    priv, authority = _authority()
+    campaign = _campaign(authority, goal=500, beneficiary=BENEFICIARY)
+    pledges = [_pledge(_nf(0), 300), _pledge(_nf(1), 400)]  # 700 >= 500
+    outcome = authority.certify_outcome(campaign.record, pledges)
+    assert outcome.record["goal_met"] is True
+    settlement = authority.settle(outcome.record, campaign.record, pledges)
+    assert settlement.record["kind"] == SETTLEMENT_KIND
+    assert settlement.record["mode"] == "release"
+    assert settlement.record["total_amount"] == 700
+    assert settlement.record["entry_count"] == 2
+    assert settlement.record["outcome_cid"] == canonical.cid(outcome.record)
+    assert audit_settlement(settlement, outcome.record, campaign.record, pledges)
+
+
+@pytest.mark.property
+def test_settlement_refund_when_goal_missed():
+    priv, authority = _authority()
+    campaign = _campaign(authority, goal=5000, beneficiary=BENEFICIARY)
+    pledges = [_pledge(_nf(0), 300), _pledge(_nf(1), 400)]  # 700 < 5000
+    outcome = authority.certify_outcome(campaign.record, pledges)
+    assert outcome.record["goal_met"] is False
+    settlement = authority.settle(outcome.record, campaign.record, pledges)
+    assert settlement.record["mode"] == "refund"
+    assert settlement.record["total_amount"] == 700  # everyone gets their pledge back
+    assert verify_settlement(settlement.record, outcome.record, campaign.record, pledges)
+
+
+@pytest.mark.property
+def test_release_without_beneficiary_is_rejected():
+    priv, authority = _authority()
+    campaign = _campaign(authority, goal=500)  # no beneficiary
+    pledges = [_pledge(_nf(0), 600)]
+    outcome = authority.certify_outcome(campaign.record, pledges)
+    assert outcome.record["goal_met"] is True
+    with pytest.raises(ValueError):
+        authority.settle(outcome.record, campaign.record, pledges)
+
+
+@pytest.mark.property
+def test_only_authority_can_settle():
+    _, authority_a = _authority()
+    _, authority_b = _authority()
+    campaign = _campaign(authority_a, goal=100, beneficiary=BENEFICIARY)
+    pledges = [_pledge(_nf(0), 200)]
+    outcome = authority_a.certify_outcome(campaign.record, pledges)
+    with pytest.raises(ValueError):
+        authority_b.settle(outcome.record, campaign.record, pledges)
+
+
+@pytest.mark.property
+def test_settlement_audit_detects_tamper_and_mismatch():
+    priv, authority = _authority()
+    campaign = _campaign(authority, goal=500, beneficiary=BENEFICIARY)
+    pledges = [_pledge(_nf(0), 300), _pledge(_nf(1), 400)]
+    outcome = authority.certify_outcome(campaign.record, pledges)
+    settlement = authority.settle(outcome.record, campaign.record, pledges)
+    # tampered settlement record
+    assert not verify_settlement(dict(settlement.record, mode="refund"), outcome.record, campaign.record, pledges)
+    # settlement built for an outcome that doesn't match the presented pledges
+    assert not verify_settlement(settlement.record, outcome.record, campaign.record, pledges + [_pledge(_nf(2), 100)])
 
 
 @pytest.mark.property

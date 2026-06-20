@@ -27,26 +27,31 @@ __all__ = [
     "PLEDGE_KIND",
     "CAMPAIGN_KIND",
     "OUTCOME_KIND",
+    "SETTLEMENT_KIND",
     "Campaign",
     "CrowdfundingCampaign",
     "verify_outcome",
     "audit_outcome",
+    "verify_settlement",
+    "audit_settlement",
     "collect_pledges",
 ]
 
 PLEDGE_KIND = "crowdfunding-pledge"
 CAMPAIGN_KIND = "crowdfunding-campaign"
 OUTCOME_KIND = "crowdfunding-outcome"
+SETTLEMENT_KIND = "crowdfunding-settlement"
 
 
 @dataclass(frozen=True)
 class Campaign:
     """A campaign definition: a funding goal (PLS-wei) and a pledging window for one ``scope``."""
 
-    scope: str       # campaign id
-    goal: int        # PLS-wei target, strictly positive
-    opens_at: int    # epoch seconds (inclusive)
-    closes_at: int   # epoch seconds (exclusive)
+    scope: str         # campaign id
+    goal: int          # PLS-wei target, strictly positive
+    opens_at: int      # epoch seconds (inclusive)
+    closes_at: int     # epoch seconds (exclusive)
+    beneficiary: str = ""  # pls1 address funds are released to if the goal is met (required to settle a success)
 
     def __post_init__(self) -> None:
         for name, value in (("goal", self.goal), ("opens_at", self.opens_at),
@@ -59,6 +64,8 @@ class Campaign:
             raise ValueError("closes_at must be after opens_at")
         if not self.scope:
             raise ValueError("scope must be non-empty")
+        if self.beneficiary and not crypto.is_valid_address(self.beneficiary):
+            raise ValueError("beneficiary must be empty or a current PLS address")
 
 
 class CrowdfundingCampaign:
@@ -82,6 +89,7 @@ class CrowdfundingCampaign:
             "goal": campaign.goal,
             "opens_at": campaign.opens_at,
             "closes_at": campaign.closes_at,
+            "beneficiary": campaign.beneficiary,
             "authority": self.authority,
         }
         canonical.encode(record)
@@ -99,19 +107,28 @@ class CrowdfundingCampaign:
         att = self.certify_outcome(campaign_record, pledges)
         return web.weave(att.record), att
 
+    def settle(self, outcome_record: dict, campaign_record: dict, pledges: list[dict]) -> Attestation:
+        """Sign the all-or-nothing settlement instruction for a certified outcome.
 
-def _outcome_record(campaign_record: dict, pledges: list[dict], authority_addr: str) -> dict:
-    """The deterministic ``crowdfunding-outcome`` record for (campaign, pledges) — pure, unsigned."""
+        If the goal was met the mode is ``release`` (every counted pledge pays the campaign's
+        ``beneficiary``); otherwise ``refund`` (each pledge returns to its pledger). The result
+        is deterministic and independently checkable (:func:`verify_settlement`); it is the
+        instruction a payout layer would execute — it does not itself move PLS.
+        """
+        if campaign_record.get("authority") != self.authority:
+            raise ValueError("only the defining authority may settle this campaign")
+        record = _settlement_record(outcome_record, campaign_record, pledges, self.authority)
+        return attest(record, self._priv, author_field="authority")
+
+
+def _in_window_pledges(campaign_record: dict, pledges: list[dict]) -> List[dict]:
+    """Validate pledges against a campaign and return those cast inside its window."""
     if campaign_record.get("kind") != CAMPAIGN_KIND:
         raise ValueError(f"not a {CAMPAIGN_KIND}: {campaign_record.get('kind')!r}")
     scope = campaign_record["scope"]
-    goal = campaign_record["goal"]
     opens_at = campaign_record["opens_at"]
     closes_at = campaign_record["closes_at"]
-
-    total_raised = 0
-    pledger_nullifiers = set()
-    included_cids: List[str] = []
+    in_window: List[dict] = []
     for pledge in pledges:
         if pledge.get("kind") != PLEDGE_KIND:
             raise ValueError(f"not a {PLEDGE_KIND}: {pledge.get('kind')!r}")
@@ -125,18 +142,24 @@ def _outcome_record(campaign_record: dict, pledges: list[dict], authority_addr: 
         amount = pledge.get("amount")
         if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:
             raise ValueError("pledge amount must be a positive int")
-        total_raised += amount
-        pledger_nullifiers.add(pledge["scope_nullifier"])
-        included_cids.append(canonical.cid(pledge))
+        in_window.append(pledge)
+    return in_window
 
-    included_cids.sort()
+
+def _outcome_record(campaign_record: dict, pledges: list[dict], authority_addr: str) -> dict:
+    """The deterministic ``crowdfunding-outcome`` record for (campaign, pledges) — pure, unsigned."""
+    in_window = _in_window_pledges(campaign_record, pledges)
+    goal = campaign_record["goal"]
+    total_raised = sum(p["amount"] for p in in_window)
+    pledger_nullifiers = {p["scope_nullifier"] for p in in_window}
+    included_cids = sorted(canonical.cid(p) for p in in_window)
     pledge_root = crypto.merkle_root(
         [crypto.sha256(cid.encode("utf-8")) for cid in included_cids]
     ).hex()
 
     record = {
         "kind": OUTCOME_KIND,
-        "scope": scope,
+        "scope": campaign_record["scope"],
         "campaign_cid": canonical.cid(campaign_record),
         "authority": authority_addr,
         "goal": goal,
@@ -169,6 +192,75 @@ def audit_outcome(outcome_att: Attestation, campaign_record: dict, pledges: list
     return (
         outcome_att.verify(author_field="authority")
         and verify_outcome(outcome_att.record, campaign_record, pledges)
+    )
+
+
+def _settlement_record(outcome_record: dict, campaign_record: dict, pledges: list[dict],
+                       authority_addr: str) -> dict:
+    """The deterministic ``crowdfunding-settlement`` record — pure, unsigned.
+
+    Recomputes the outcome from the pledges and requires the supplied ``outcome_record`` to
+    match it, so a settlement is always consistent with the certified outcome.
+    """
+    if outcome_record.get("kind") != OUTCOME_KIND:
+        raise ValueError(f"not a {OUTCOME_KIND}: {outcome_record.get('kind')!r}")
+    if _outcome_record(campaign_record, pledges, outcome_record.get("authority")) != outcome_record:
+        raise ValueError("outcome record does not match the pledges")
+
+    in_window = _in_window_pledges(campaign_record, pledges)
+    mode = "release" if outcome_record["goal_met"] else "refund"
+    beneficiary = campaign_record.get("beneficiary", "")
+    if mode == "release" and not beneficiary:
+        raise ValueError("campaign has no beneficiary; cannot release a met goal")
+
+    entries = []
+    total = 0
+    for pledge in in_window:
+        payee = beneficiary if mode == "release" else pledge["actor"]
+        entries.append((canonical.cid(pledge), payee, pledge["amount"]))
+        total += pledge["amount"]
+    entries.sort()
+    settlement_root = crypto.merkle_root(
+        [crypto.sha256(canonical.encode([cid, payee, amount])) for cid, payee, amount in entries]
+    ).hex()
+
+    record = {
+        "kind": SETTLEMENT_KIND,
+        "scope": campaign_record["scope"],
+        "campaign_cid": canonical.cid(campaign_record),
+        "outcome_cid": canonical.cid(outcome_record),
+        "authority": authority_addr,
+        "mode": mode,
+        "total_amount": total,
+        "entry_count": len(entries),
+        "settlement_root": settlement_root,
+    }
+    canonical.encode(record)
+    return record
+
+
+def verify_settlement(settlement_record: dict, outcome_record: dict, campaign_record: dict,
+                      pledges: list[dict]) -> bool:
+    """True iff ``settlement_record`` is exactly the honest settlement for this
+    (outcome, campaign, pledges) — independent recomputation; not a signature check."""
+    if settlement_record.get("kind") != SETTLEMENT_KIND:
+        return False
+    if campaign_record.get("authority") != settlement_record.get("authority"):
+        return False
+    try:
+        expected = _settlement_record(outcome_record, campaign_record, pledges,
+                                      settlement_record["authority"])
+    except (ValueError, KeyError, TypeError):
+        return False
+    return expected == settlement_record
+
+
+def audit_settlement(settlement_att: Attestation, outcome_record: dict, campaign_record: dict,
+                     pledges: list[dict]) -> bool:
+    """Full audit: the settlement is validly authority-signed AND recomputes from the pledges."""
+    return (
+        settlement_att.verify(author_field="authority")
+        and verify_settlement(settlement_att.record, outcome_record, campaign_record, pledges)
     )
 
 
