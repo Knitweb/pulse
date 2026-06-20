@@ -168,6 +168,21 @@ def test_verify_liquid_result_rejects_non_dict():
 
 
 @pytest.mark.property
+def test_certified_liquid_result_commits_audit_roots():
+    authority_priv, _ = crypto.generate_keypair()
+    poll = _poll(authority_priv)
+    ballots = [_ballot(_nf("a"), 0)]
+    delegations = [_deleg(_nf("b"), _nf("a"))]
+    att = certify_liquid_result(poll.record, ballots, delegations, authority_priv)
+    assert crypto.is_valid_hex(att.record["ballot_root"], 32)
+    assert crypto.is_valid_hex(att.record["delegation_root"], 32)
+    # the ballot_root commits to the counted set: adding a counted ballot changes it
+    att2 = certify_liquid_result(poll.record, ballots + [_ballot(_nf("c"), 1)],
+                                 delegations, authority_priv)
+    assert att2.record["ballot_root"] != att.record["ballot_root"]
+
+
+@pytest.mark.property
 def test_only_authority_certifies_liquid_result():
     authority_priv, _ = crypto.generate_keypair()
     other_priv, _ = crypto.generate_keypair()

@@ -134,6 +134,22 @@ def delegation_map(delegations: List[dict]) -> Dict[str, str]:
     return {nf: target for nf, (_seq, _cid, target) in winners.items()}
 
 
+def _counted_root(records: List[dict]) -> str:
+    """Merkle root over the CIDs of the COUNTED records (dedup by scope_nullifier, highest seq,
+    tie smallest CID) — the same winners the tally uses — so a liquid result commits to exactly
+    which ballots/delegations it counted, like ballot_root/pledge_root elsewhere."""
+    winners: Dict[str, tuple] = {}
+    for record in records:
+        key = record["scope_nullifier"]
+        seq = record["seq"]
+        cid = canonical.cid(record)
+        current = winners.get(key)
+        if current is None or seq > current[0] or (seq == current[0] and cid < current[1]):
+            winners[key] = (seq, cid)
+    cids = sorted(cid for _seq, cid in winners.values())
+    return crypto.merkle_root([crypto.sha256(c.encode("utf-8")) for c in cids]).hex()
+
+
 def resolve_liquid(direct_choices: Dict[str, int], delegations: Dict[str, str],
                    weights: Dict[str, int] | None = None) -> Dict[int, int]:
     """Resolve liquid-democracy weight flow to ``{choice: total_weight}``.
@@ -228,6 +244,8 @@ def liquid_result_record(poll_record: dict, ballots: List[dict], delegations: Li
         "winner": winner,
         "winner_votes": winner_votes,
         "tie": tie,
+        "ballot_root": _counted_root(in_window),
+        "delegation_root": _counted_root(scoped),
     }
     canonical.encode(record)
     return record
