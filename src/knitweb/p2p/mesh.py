@@ -408,7 +408,15 @@ class Gossipsub:
         """
         self.epoch += 1
         if topics is None:
-            topics = set(self._mesh) | set(self._topic_peers)
+            # ``sorted`` is load-bearing, not cosmetic: ``self._rng`` is a single
+            # shared stream consumed once per topic by ``_select_graft``/
+            # ``_select_prune``. A bare ``set`` union iterates in PYTHONHASHSEED
+            # order, so two nodes with identical state but different hash seeds
+            # would draw the RNG in different *sequences* across topics and build
+            # divergent meshes — defeating the per-topic determinism fix. Canonical
+            # topic order pins the draw sequence (and the per-peer frame order in
+            # ``out``) so ``same seed -> same mesh`` holds process-to-process.
+            topics = sorted(set(self._mesh) | set(self._topic_peers))
         out: Dict[str, List[bytes]] = {}
 
         for topic in topics:
