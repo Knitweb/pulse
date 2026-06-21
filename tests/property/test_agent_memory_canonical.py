@@ -7,6 +7,8 @@ collapse to a single CID across repositories and tools. These property tests pin
 * identical content authored in two synthetic repos -> identical CID;
 * dedup: the same skill/preference text (modulo incidental whitespace and tag
   ordering) resolves to one node CID;
+* dedup: ArchitectureNode components (modulo incidental whitespace and component
+  ordering/duplicates) resolve to one node CID;
 * distinct content -> distinct CID, and same-looking content under a different
   kind -> distinct CID (no kind-confusion);
 * byte-stable round-trip through canonical encode/decode and ``node_from_record``;
@@ -88,6 +90,24 @@ def test_dedup_is_insensitive_to_whitespace_and_tag_order():
     p1 = PreferenceNode(scope="delivery", statement="ship lean, action-first")
     p2 = PreferenceNode(scope=" delivery ", statement="ship lean, action-first\n")
     assert p1.cid == p2.cid
+
+
+@pytest.mark.property
+def test_architecture_components_dedup_and_normalization():
+    # ArchitectureNode.components goes through the same _norm_labels (sort + dedupe)
+    # as tags: components differing only by whitespace, ordering, and duplicates must
+    # collapse to one node CID, so architectural knowledge dedups regardless of input.
+    arch1 = ArchitectureNode(
+        name="event-sourced-core",
+        decision="collapse rule impls into one CID-deterministic event log",
+        components=("  ledger ", "fabric"),
+    )
+    arch2 = ArchitectureNode(
+        name="event-sourced-core",
+        decision="collapse rule impls into one CID-deterministic event log",
+        components=("fabric", "ledger", "ledger"),  # reordered + duplicate + ws
+    )
+    assert arch1.cid == arch2.cid
 
 
 # -- (4) distinct content -> distinct CID -------------------------------------
