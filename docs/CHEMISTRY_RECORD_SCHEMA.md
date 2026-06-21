@@ -37,7 +37,7 @@ Each entry of `reactants` / `products` is a flat map with exactly these fields
 | `species`     | `str`               | The species formula, e.g. `"H2O"`.                           |
 | `coeff`       | `int`               | Stoichiometric coefficient (integer-only; floats/bools rejected). |
 | `composition` | `list[[str, int]]`  | `[element, count]` pairs, **canonically sorted** by element; counts are integers. |
-| `charge`      | `int`               | Net charge of the species (integer-only).                    |
+| `charge`      | `int`               | Total charge of the species (integer-only).                  |
 
 ## Canonicalization rules (what makes the CID stable)
 
