@@ -5,9 +5,11 @@ content-addressed **beats**, each anchoring an epoch to a state root and chainin
 to the previous beat. Higher layers ride the Pulse to drive:
 
   * checkpoint propagation (a Merkle root of fabric state per epoch),
-  * demand-gated PLS mint windows (today the mint in ``token.mint`` is bounded by
-    escrowed demand plus an optional ``max_supply`` cap; binding a mint cap to a
-    Beat/epoch is a future wiring, not yet implemented),
+  * demand-gated PLS mint windows (the mint in ``token.mint`` is bounded by
+    escrowed demand plus an optional ``max_supply`` cap; the signed Beat now also
+    carries an optional per-epoch mint cap (``Beat.epoch_mint_cap``, read via
+    ``cap_for_epoch``) which ``reward_verified_work`` prefers as the consensus-visible
+    ceiling),
   * liveness / availability probes and sampled re-execution scheduling.
 
 Time is *injected* (the caller supplies the timestamp), never read from a global
@@ -151,6 +153,10 @@ class Pulse:
         if several share the epoch), or ``None`` when no Beat for the epoch carries a
         cap. This lets token minting treat the signed heartbeat as the consensus-visible
         monetary governor rather than relying on runtime policy config.
+
+        The "last matching Beat wins" branch is *defensive*: the public ``Pulse.beat()``
+        rejects a non-advancing epoch, so two recorded Beats cannot share an epoch via
+        the public API; the branch is kept only for direct/defensive use.
         """
         _require_int("epoch", epoch)
         cap: int | None = None
