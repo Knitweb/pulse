@@ -48,9 +48,15 @@ A Lens that needs finer-grained access than the snapshot may use these directly.
 ### `knitweb.fabric.web.Web` — the graph (read methods only for Lens)
 - `Web.get(node_cid) -> dict | None` — the record at a CID.
 - `Web.neighbors(node_cid, rel=None) -> list[str]` — outgoing neighbour CIDs.
-- `Web.traverse(...)` — deterministic ordered traversal.
+- `Web.traverse(...) -> set[str]` — deterministic membership set (`set[str]`); it
+  exposes *which* CIDs are reachable, not an order (the internal walk only sorts for
+  deterministic membership). For ordered lineage use `provenance.ancestry`, which
+  returns an ordered list.
 - `Web.size -> tuple[int, int]` — `(node_count, edge_count)` **property** (no call parens).
-- `Web.nodes -> dict[str, dict]` — read-only view of CID → record.
+- `Web.nodes -> dict[str, dict]` — the **live** CID → record mapping (the Web's own
+  backing dict, not a copy); treat it as read-only — Pulse does not defensively copy it,
+  so mutating it corrupts live state. For a truly mutation-isolated (deep-copied) read
+  surface, use `web_snapshot()`.
 
 `Web.weave` and `Web.link` are *write* methods — a Lens reads; it does not weave.
 
