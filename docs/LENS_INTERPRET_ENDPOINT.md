@@ -26,14 +26,20 @@ a pure delegation seam (knitweb/pulse#157).
 A *Lens* is any callable with the signature:
 
 ```python
-def lens(query: str, snapshot: Mapping) -> object: ...
+def lens(query: str, snapshot: Mapping, params: Mapping) -> object: ...
 ```
 
 - `query` — the request's query string.
 - `snapshot` — the value returned by `web_snapshot(app.web)`: a deterministic, read-only deep
   copy with keys `state_root`, `node_count`, `edge_count`, `records` (CID-keyed node records), and
   `jsonld` (the deterministic JSON-LD/DKG export). Mutating it cannot affect the live Web.
+- `params` — the request's optional `params` object, forwarded verbatim as a (possibly empty)
+  mapping for the Lens to scope its interpretation; it is never `None`.
 - return value — any JSON-serializable object; it is returned verbatim under `result`.
+
+The Lens is **untrusted host code**: if it raises, the gateway contains the exception and returns a
+deterministic `interpreter-error` contract (HTTP `502`, see below) — Pulse never crashes on a Lens
+fault, and the Lens's internal error text is never leaked into the response.
 
 The host registers (or clears) the Lens on the `App`:
 
@@ -42,7 +48,7 @@ from knitweb.gateway import App, serve
 
 app = App("molgang")
 
-def my_lens(query, snapshot):
+def my_lens(query, snapshot, params):
     # External interpreter: an LLM client, a vector search, a graph query — all OUTSIDE Pulse.
     hits = [cid for cid, rec in snapshot["records"].items() if query in str(rec)]
     return {"matched_cids": sorted(hits)}
@@ -86,8 +92,18 @@ non-health route.)
 This response is deterministic and safe: no interpreter is invoked, nothing is written, and the
 rest of the gateway keeps serving.
 
+### Response — Lens raised (`502 Bad Gateway`)
+
+```json
+{ "ok": false, "lens": true, "reason": "interpreter-error", "query": "<text>" }
+```
+
+The registered Lens raised an exception (a backend timeout, connection error, etc.). The fault is
+contained, no internal error text is leaked, and the gateway keeps serving every other request.
+
 ## Programmatic use
 
 The same contract is available in-process via `App.interpret(query, params=None)`, which returns
-the response dict directly (without the HTTP layer). `serve()` maps the `lens` flag to the status
-code: `200` when a Lens produced a result, `501` when none is installed.
+the response dict directly (without the HTTP layer). `serve()` maps the response to the status
+code: `200` when a Lens produced a result, `501` when none is installed, and `502` when the Lens
+itself raised.

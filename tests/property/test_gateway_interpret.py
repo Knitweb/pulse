@@ -15,6 +15,7 @@ from http.server import ThreadingHTTPServer
 import pytest
 
 from knitweb.fabric.items import web_state_root
+from knitweb.fabric.snapshot import web_snapshot
 from knitweb.gateway import App, serve
 
 
@@ -105,10 +106,11 @@ def test_interpret_without_lens_returns_501_contract_over_http():
 
 
 # -- (b) a registered Lens is delegated to, read-only -----------------------
-def _echo_lens(query, snapshot):
-    """A trivial in-test Lens: reads the snapshot, writes nothing back."""
+def _echo_lens(query, snapshot, params):
+    """A trivial in-test Lens: reads the snapshot + params, writes nothing back."""
     matched = sorted(cid for cid, rec in snapshot["records"].items() if query in str(rec))
-    return {"query_echo": query, "nodes_seen": snapshot["node_count"], "matched": matched}
+    return {"query_echo": query, "nodes_seen": snapshot["node_count"],
+            "matched": matched, "params_echo": dict(params)}
 
 
 @pytest.mark.property
@@ -122,7 +124,7 @@ def test_interpret_delegates_to_registered_lens_in_process():
     assert out["query"] == "water"
     assert out["result"]["query_echo"] == "water"
     assert out["result"]["nodes_seen"] == app.web.size[0]
-    assert len(out["result"]["matched"]) >= 1
+    assert len(out["result"]["matched"]) == 1   # fixture weaves exactly one 'water' record
 
 
 @pytest.mark.property
@@ -158,9 +160,15 @@ def test_interpret_does_not_mutate_web_or_app_state():
     root_before = web_state_root(app.web)
     size_before = app.web.size
     records_before = list(app._records)
+    record_values_before = web_snapshot(app.web)["records"]  # deep copy of record interiors
 
-    # a Lens that *tries* to mutate the snapshot it is given must not reach the live Web
-    def _hostile_lens(query, snapshot):
+    # a Lens that *tries* to mutate the snapshot it is given must not reach the live Web —
+    # including the interiors of individual records, not just the top-level containers.
+    def _hostile_lens(query, snapshot, params):
+        for rec in snapshot["records"].values():
+            if isinstance(rec, dict):
+                for k in list(rec):
+                    rec[k] = "EVIL"            # tamper nested record values
         snapshot["records"].clear()
         snapshot["node_count"] = -1
         return {"tampered": True}
@@ -172,6 +180,9 @@ def test_interpret_does_not_mutate_web_or_app_state():
     assert web_state_root(app.web) == root_before
     assert app.web.size == size_before
     assert app._records == records_before
+    # deep isolation: nested record values are untouched. web_state_root commits only to
+    # CID keys/edges, so a value-level tamper would slip past it — compare contents directly.
+    assert web_snapshot(app.web)["records"] == record_values_before
 
 
 @pytest.mark.property
@@ -195,3 +206,60 @@ def test_interpret_respects_auth_token():
         assert _post(port, "/interpret", {"query": "x"})[0] == 401
         ok = _post(port, "/interpret", {"query": "x"}, {"Authorization": "Bearer s3cret"})
         assert ok[0] == 200
+
+
+# -- a Lens that raises is contained — the gateway must keep serving ---------
+def _raising_lens(query, snapshot, params):
+    """A Lens whose backend fails — the normal failure mode of an external interpreter."""
+    raise RuntimeError("backend timeout talking to the model service")
+
+
+@pytest.mark.property
+def test_interpret_contains_lens_exception_with_deterministic_contract():
+    app = App()
+    app.attest("u1", {"kind": "reaction", "formula": "H2O"})
+    app.set_lens(_raising_lens)
+    # No exception escapes; the contract is deterministic and leaks no internal error text.
+    out = app.interpret("boom")
+    assert out == {"ok": False, "lens": True, "reason": "interpreter-error", "query": "boom"}
+
+
+@pytest.mark.property
+def test_interpret_lens_error_is_502_and_gateway_keeps_serving_over_http():
+    app = App()
+    app.attest("u1", {"kind": "reaction", "formula": "H2O"})
+    app.set_lens(_raising_lens)
+    with _running(app) as port:
+        status, body = _post(port, "/interpret", {"query": "boom"})
+        # an upstream interpreter fault is a deterministic 502 — NOT a 400 nor a dropped
+        # connection with no response.
+        assert status == 502
+        assert json.loads(body) == {"ok": False, "lens": True,
+                                    "reason": "interpreter-error", "query": "boom"}
+        # the gateway is still serving after the Lens blew up
+        assert _get(port, "/")[0] == 200
+        assert _post(port, "/interpret", {"query": "again"})[0] == 502
+
+
+# -- params are forwarded to the Lens (not silently dropped) -----------------
+@pytest.mark.property
+def test_interpret_forwards_params_to_lens():
+    app = App()
+    app.attest("u1", {"kind": "reaction", "formula": "H2O", "text": "water"})
+    app.set_lens(_echo_lens)
+    out = app.interpret("water", {"top_k": 3, "lang": "en"})
+    assert out["ok"] is True
+    assert out["result"]["params_echo"] == {"top_k": 3, "lang": "en"}
+    # default: no params -> the Lens receives an empty dict, never None
+    assert app.interpret("water")["result"]["params_echo"] == {}
+
+
+@pytest.mark.property
+def test_interpret_forwards_params_over_http():
+    app = App()
+    app.attest("u1", {"kind": "reaction", "formula": "H2O", "text": "water"})
+    app.set_lens(_echo_lens)
+    with _running(app) as port:
+        status, body = _post(port, "/interpret", {"query": "water", "params": {"top_k": 2}})
+        assert status == 200
+        assert json.loads(body)["result"]["params_echo"] == {"top_k": 2}
