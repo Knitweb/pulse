@@ -1,9 +1,10 @@
 """Proofs for the stable Lens provenance query contract.
 
 Covers relation-filtered ancestry and origins, deterministic ordering (across repeated
-calls and across different insertion orders), and dangling-reference (missing-node)
-visibility — a referenced ancestor whose node record is absent must surface in the
-result, never be silently dropped.
+calls, across different insertion orders, and for inputs the contract itself sorts but
+upstream does not), dangling-reference (missing-node) visibility, and the degenerate
+graph shapes a Lens can throw at the boundary — empty/unknown start, self-loops,
+multi-origin diamonds, and cycles that must terminate.
 """
 
 import pytest
@@ -31,11 +32,37 @@ def _chain():
     return web, dict(ore=ore, smelt=smelt, ingot=ingot, mach=mach, part=part)
 
 
+def _diamond():
+    # Two distinct raw-material origins reachable by two disjoint paths:
+    #   part -> proc_a -> ore_a
+    #   part -> proc_b -> ore_b
+    # Origin ordering is non-trivial (two leaves), so a sort is observable.
+    web = Web()
+    ore_a = web.weave({"kind": "material", "sku": "ORE-A"})
+    ore_b = web.weave({"kind": "material", "sku": "ORE-B"})
+    proc_a = web.weave({"kind": "process", "op": "refine-a"})
+    proc_b = web.weave({"kind": "process", "op": "refine-b"})
+    part = web.weave({"kind": "material", "sku": "ALLOY"})
+    web.link(part, proc_a, "derived-from")
+    web.link(part, proc_b, "derived-from")
+    web.link(proc_a, ore_a, "derived-from")
+    web.link(proc_b, ore_b, "derived-from")
+    return web, dict(
+        ore_a=ore_a, ore_b=ore_b, proc_a=proc_a, proc_b=proc_b, part=part
+    )
+
+
 @pytest.mark.property
 def test_relation_filtered_ancestry_present_to_full_depth():
     web, n = _chain()
-    # an unrelated edge type must not widen the present set when rels is restricted
-    web.link(n["part"], n["ore"], "mentions")
+    # A "mentions" node reachable ONLY via the mentions edge (NOT via the
+    # derived-from chain). With the derived-from filter it must be ABSENT from
+    # present; dropping the filter (rels=None) it WOULD appear. So this fixture
+    # makes the relation filter load-bearing: rels=None vs {"derived-from"}
+    # changes the checked result.
+    note = web.weave({"kind": "note", "txt": "see also"})
+    web.link(n["part"], note, "mentions")
+
     res = provenance_query(web, n["part"], rels={"derived-from"})
     assert isinstance(res, ProvenanceQueryResult)
     assert res.root == n["part"]
@@ -43,8 +70,17 @@ def test_relation_filtered_ancestry_present_to_full_depth():
     # full chain back to the ore, all present, start excluded, sorted
     assert set(res.present) == {n["mach"], n["ingot"], n["smelt"], n["ore"]}
     assert n["part"] not in res.present
+    # the mentions-only node is filtered out — the derived-from rels cannot reach it
+    assert note not in res.present
     assert res.missing == ()
     assert not res.has_dangling
+
+    # Without the filter the mentions-only node WOULD appear: this is the
+    # mutation guard — passing rels=None instead of {"derived-from"} changes
+    # whether `note` is in present.
+    res_all = provenance_query(web, n["part"], rels=None)
+    assert res_all.rels is None
+    assert note in res_all.present
 
 
 @pytest.mark.property
@@ -74,6 +110,32 @@ def test_deterministic_across_repeated_calls():
 
 
 @pytest.mark.property
+def test_rels_sorted_by_contract_from_unsorted_input():
+    # The contract performs its OWN sort of `rels` (tuple(sorted(rels))); the
+    # upstream ancestry/origins walk only uses `rels` as a membership set, so it
+    # never imposes this order. Pass an UNSORTED iterable of relation names and
+    # require the result's `rels` to be the sorted tuple.
+    #
+    # Mutation criterion: if someone deleted the contract's tuple(sorted(rels)),
+    # at least one of these unsorted inputs would surface in non-sorted order and
+    # this test would fail.
+    web, n = _chain()
+    web.link(n["part"], n["ore"], "mentions")
+    web.link(n["part"], n["mach"], "supports")
+
+    unsorted_inputs = [
+        {"supports", "mentions", "derived-from"},      # set: undefined iter order
+        ["supports", "mentions", "derived-from"],       # descending list
+        list(reversed(["derived-from", "mentions", "supports"])),
+    ]
+    expected = ("derived-from", "mentions", "supports")
+    for rels in unsorted_inputs:
+        res = provenance_query(web, n["part"], rels=rels)
+        assert res.rels == expected
+        assert list(res.rels) == sorted(res.rels)
+
+
+@pytest.mark.property
 def test_deterministic_across_insertion_orders():
     # Build the same DAG two ways: weave/link in different orders, same content.
     records = {
@@ -97,6 +159,68 @@ def test_deterministic_across_insertion_orders():
     r1 = provenance_query(web1, c1["part"], rels={"derived-from"})
     r2 = provenance_query(web2, c2["part"], rels={"derived-from"})
     assert r1 == r2                                   # identical despite insertion order
+
+
+@pytest.mark.property
+def test_empty_unknown_start_yields_all_empty():
+    # A start CID the Web has never seen has no ancestry and no origins; every
+    # field is empty and nothing dangles.
+    web, _ = _chain()
+    res = provenance_query(web, "bafy-unknown-start-cid", rels={"derived-from"})
+    assert res.present == ()
+    assert res.missing == ()
+    assert res.origin_present == ()
+    assert res.origin_missing == ()
+    assert res.has_dangling is False
+
+
+@pytest.mark.property
+def test_self_loop_excludes_start_from_its_own_present():
+    # A node that links to itself must not appear in its own provenance: the
+    # walk excludes the start CID even when an edge points back at it.
+    web = Web()
+    a = web.weave({"kind": "material", "sku": "SELF"})
+    web.link(a, a, "derived-from")
+    res = provenance_query(web, a, rels={"derived-from"})
+    assert a not in res.present
+    assert res.present == ()
+    assert res.origin_present == ()
+    assert res.has_dangling is False
+
+
+@pytest.mark.property
+def test_diamond_reports_exactly_two_sorted_origins():
+    # A diamond has TWO distinct raw-material origins reachable by two paths.
+    # Both must be reported, exactly once each, in sorted order — so origin
+    # ordering is genuinely exercised (not a one-element list that is trivially
+    # "sorted").
+    web, n = _diamond()
+    res = provenance_query(web, n["part"], rels={"derived-from"})
+    assert set(res.origin_present) == {n["ore_a"], n["ore_b"]}
+    assert len(res.origin_present) == 2
+    assert list(res.origin_present) == sorted(res.origin_present)
+    # both processing steps and both ores are present ancestors, start excluded
+    assert set(res.present) == {
+        n["proc_a"], n["proc_b"], n["ore_a"], n["ore_b"]
+    }
+    assert n["part"] not in res.present
+    assert not res.has_dangling
+
+
+@pytest.mark.property
+def test_two_cycle_terminates_with_finite_result():
+    # a <-> b is a 2-cycle. The walk must TERMINATE (no hang) and return a sane,
+    # finite result: b is the single ancestor of a, start excluded, each once.
+    web = Web()
+    a = web.weave({"kind": "material", "sku": "A"})
+    b = web.weave({"kind": "material", "sku": "B"})
+    web.link(a, b, "derived-from")
+    web.link(b, a, "derived-from")
+    res = provenance_query(web, a, rels={"derived-from"})
+    assert res.present == (b,)                         # finite, start excluded
+    assert a not in res.present
+    assert res.missing == ()
+    assert not res.has_dangling
 
 
 @pytest.mark.property
