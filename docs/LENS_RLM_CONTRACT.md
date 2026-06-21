@@ -61,13 +61,18 @@ typed `edges`. This is the export-to-Lens query surface: a Lens queries the
 `@graph` and answers by citing the `state_root` alongside it.
 
 ```python
-from knitweb.fabric.snapshot import web_snapshot
+from knitweb.fabric.jsonld import import_web
 from knitweb.fabric import provenance
 
-# 1. The host hands the Lens a read-only, deeply-copied snapshot of the Web.
-snap = web_snapshot(web)
+# `snap` is the web_snapshot dict the host handed the Lens. Everything below is
+# derived from `snap` alone — the Lens never touches the live Web.
 commitment = snap["state_root"]          # 64 hex chars: sha256(node_root || edge_root)
 graph = snap["jsonld"]["@graph"]         # the deterministic JSON-LD export-to-Lens view
+
+# 1. Reconstruct a read-only Web from the snapshot's JSON-LD read model. import_web
+#    re-weaves the records and re-links the edges, and is self-checking: it raises if
+#    any node's @id does not match the CID derived from its own record.
+web = import_web(snap["jsonld"])
 
 # 2. The Lens query is a pure read over the @graph — a content-addressed lookup,
 #    no mutation. Here: "what does this product node derive from?"
@@ -77,7 +82,9 @@ record = node["record"]                  # the canonical record under its conten
 derived_from = [e["dst"] for e in node["edges"] if e["rel"] == "derived-from"]
 ```
 
-The JSON-LD a Lens reads (one node object from the `@graph`):
+The JSON-LD a Lens reads (an abridged export document — `@context` plus a one-node
+`@graph`). It is trimmed for the doc: the real `export_web` also emits a top-level
+`rdfs:label` array and additional `@context` keys.
 
 ```json
 {
@@ -123,5 +130,7 @@ answer = {
 
 A verifier checks the answer with no trust in the Lens: recompute `web_state_root`
 over the snapshot and confirm it equals `state_root`; resolve each cited CID and
-re-derive it from its own canonical bytes; walk `ancestry` / `origins` over the same
-`@graph`. The Lens read nothing it cannot prove and wrote nothing at all.
+re-derive it from its own canonical bytes; reconstruct the read-only Web from the
+snapshot with `import_web(snap["jsonld"])` and re-walk `provenance.ancestry` /
+`provenance.origins` over that Web. The Lens read nothing it cannot prove and wrote
+nothing at all.
