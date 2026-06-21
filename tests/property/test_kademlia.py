@@ -23,6 +23,7 @@ from knitweb.core import canonical
 from knitweb.p2p.kademlia import (
     DEFAULT_ALPHA,
     DEFAULT_K,
+    DEFAULT_MAX_ROUNDS,
     ID_BITS,
     ID_BYTES,
     Contact,
@@ -292,6 +293,37 @@ def test_lookup_terminates_with_no_seeds():
     state = iterative_lookup(_id(1), [], responder, k=5)
     assert state.result() == []
     assert state.rounds == 0
+
+
+@pytest.mark.property
+def test_iterative_lookup_caps_rounds_against_unbounded_responder():
+    """A malicious responder cannot drive unbounded rounds (DoS).
+
+    The honest termination guard ``rounds >= len(known)`` is not enough on its own:
+    a responder that returns ONE fresh, strictly-closer contact every round keeps
+    ``improved`` True and grows ``len(known)`` in lockstep with ``rounds``, so that
+    guard never fires. The fixed default ceiling (``DEFAULT_MAX_ROUNDS``), which is
+    independent of the responder-grown candidate set, must still terminate it.
+    """
+    target = _id(0)  # distance to target == int(node id) → smaller id == closer.
+    nxt = {"d": 1 << 64}  # start far; hand out a strictly-closer id every call.
+
+    def adversarial_responder(contact, tgt):
+        # One new contact, always strictly closer than anything seen so far — so
+        # the lookup never "converges" and only the hard cap can stop it.
+        nxt["d"] -= 1
+        if nxt["d"] <= 0:
+            return []
+        return [_contact(nxt["d"])]
+
+    seeds = [_contact(1 << 64)]
+    state = iterative_lookup(
+        target, seeds, adversarial_responder, k=DEFAULT_K, alpha=DEFAULT_ALPHA
+    )
+    # Terminates at all (no hang) AND it was the fixed cap that stopped it — the
+    # responder would have kept feeding closer contacts far past this point.
+    assert state.rounds == DEFAULT_MAX_ROUNDS
+    assert DEFAULT_MAX_ROUNDS == ID_BITS  # the documented, attacker-independent bound
 
 
 @pytest.mark.property

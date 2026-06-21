@@ -90,11 +90,22 @@ __all__ = [
     "contacts_to_records",
     "LookupState",
     "iterative_lookup",
+    "DEFAULT_MAX_ROUNDS",
 ]
 
 # A node id is a SHA-256 digest: 256 bits / 32 bytes. The whole metric space.
 ID_BITS = 256
 ID_BYTES = 32
+
+# Default hard ceiling on iterative-lookup rounds. A lookup over a 256-bit metric
+# space converges in O(log N) rounds, so ID_BITS is a generous bound no honest
+# lookup approaches — yet it is a FIXED constant, independent of the (untrusted)
+# candidate set the responder grows. That independence is the point: the
+# per-round ``rounds >= len(known)`` early-out cannot be the sole bound, because a
+# misbehaving responder that returns one fresh, strictly-closer contact every
+# round keeps ``len(known)`` racing one step ahead of ``rounds`` forever. The
+# fixed cap guarantees termination (and bounded compute) regardless of responder.
+DEFAULT_MAX_ROUNDS = ID_BITS
 
 # Default bucket width ``k`` (Kademlia's replication parameter): the max entries a
 # single k-bucket holds and the number of closest peers FIND_NODE returns. 20 is
@@ -571,8 +582,12 @@ def iterative_lookup(
         network — so the lookup never touches a socket and cannot stall.
       k / alpha: replication width and per-round concurrency.
       tie_break: injected deterministic tie-break comparator (default: id hex).
-      max_rounds: hard cap on rounds (defaults to a safe bound of the number of
-        distinct candidates, which alone guarantees termination).
+      max_rounds: hard cap on rounds. Defaults to ``DEFAULT_MAX_ROUNDS``
+        (``ID_BITS`` = 256) — a FIXED ceiling independent of the candidate set,
+        which the responder grows. A healthy lookup converges in O(log N) rounds
+        and never approaches it; it exists only so a misbehaving responder that
+        keeps returning a fresh, strictly-closer contact every round cannot drive
+        unbounded rounds.
 
     Returns the terminal :class:`LookupState`; ``state.result()`` is the ``k``
     closest contacts found.
@@ -581,19 +596,26 @@ def iterative_lookup(
     closest *unqueried* candidates and merges their results. The loop stops when a
     full round discovers **no** candidate strictly closer than the best already
     seen *and* there are no unqueried candidates closer than that best — i.e. the
-    frontier has stopped improving. Every round marks at least one new candidate
-    queried (or the batch is empty and we stop), so the loop runs at most as many
-    rounds as there are distinct candidates: bounded compute, no clock, no RNG.
+    frontier has stopped improving. Honest lookups therefore converge in a handful
+    of rounds. A *misbehaving* responder, though, can keep ``improved`` True
+    indefinitely by returning one fresh, strictly-closer contact each round — that
+    grows ``len(known)`` in lockstep with ``rounds``, so the ``rounds >=
+    len(known)`` early-out never fires. The fixed ``max_rounds`` ceiling
+    (defaulting to ``DEFAULT_MAX_ROUNDS``) is the real backstop: bounded rounds,
+    bounded compute, no clock, no RNG, regardless of what the responder returns.
     """
     state = LookupState(
         target=_as_id_bytes(target), k=k, alpha=alpha, tie_break=tie_break
     )
     state.add(list(seeds))
 
-    # Absolute safety bound: a lookup can never run more rounds than there are
-    # distinct ids it could possibly query. Recomputed lazily below, but also
-    # honoured as an explicit cap so a misbehaving responder cannot loop forever.
-    hard_cap = max_rounds
+    # Absolute safety bound. The ``rounds >= len(known)`` early-out below handles
+    # honest convergence, but ``known`` is grown by the (untrusted) responder each
+    # round, so it cannot be the *sole* bound — a responder that returns one fresh,
+    # strictly-closer contact per round keeps ``len(known)`` one step ahead of
+    # ``rounds`` forever. So default to a FIXED ceiling independent of anything the
+    # responder controls; an explicit ``max_rounds`` still overrides it.
+    hard_cap = max_rounds if max_rounds is not None else DEFAULT_MAX_ROUNDS
 
     while True:
         best_before = state.closest_seen()
