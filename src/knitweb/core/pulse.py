@@ -42,6 +42,13 @@ class Beat:
     timestamp: int          # integer seconds (injected)
     state_root: str         # hex Merkle root of fabric state at this epoch
     prev_beat: str | None   # CID of the previous beat, or None for genesis
+    # Consensus-visible per-epoch mint ceiling (PLS-wei). ``None`` ⇒ the Beat carries
+    # no cap and is byte-identical to a pre-cap Beat: the field is conditionally
+    # OMITTED from to_record()/cid when None (the byte-identity guard, mirroring
+    # Issuance.epoch). When present, token minting prefers this Beat-carried cap over
+    # the policy default, so the *signed heartbeat* — not runtime config — governs the
+    # per-epoch money supply, auditable straight from the chain of Beats.
+    epoch_mint_cap: int | None = None
 
     def __post_init__(self) -> None:
         _require_int("epoch", self.epoch)
@@ -49,15 +56,27 @@ class Beat:
         _require_str("state_root", self.state_root)
         if self.prev_beat is not None:
             _require_str("prev_beat", self.prev_beat)
+        if self.epoch_mint_cap is not None:
+            if not isinstance(self.epoch_mint_cap, int) or isinstance(
+                self.epoch_mint_cap, bool
+            ):
+                raise TypeError("epoch_mint_cap must be int")
+            if self.epoch_mint_cap < 0:
+                raise ValueError("epoch_mint_cap must be non-negative")
 
     def to_record(self) -> dict:
-        return {
+        record = {
             "kind": "pulse-beat",
             "epoch": self.epoch,
             "timestamp": self.timestamp,
             "state_root": self.state_root,
             "prev_beat": self.prev_beat,
         }
+        # Conditional field: absent when None so capless Beats keep byte-identical
+        # canonical bytes (and CID) to the pre-cap encoding.
+        if self.epoch_mint_cap is not None:
+            record["epoch_mint_cap"] = self.epoch_mint_cap
+        return record
 
     @property
     def cid(self) -> str:
@@ -95,8 +114,14 @@ class Pulse:
     def current_epoch(self) -> int:
         return self._last.epoch if self._last is not None else -1
 
-    def beat(self, timestamp: int, state_root: str) -> Beat:
+    def beat(
+        self, timestamp: int, state_root: str, epoch_mint_cap: int | None = None
+    ) -> Beat:
         """Emit the next heartbeat for ``timestamp`` anchoring ``state_root``.
+
+        ``epoch_mint_cap`` (default ``None``) optionally binds a consensus-visible
+        per-epoch mint ceiling to this Beat; ``None`` leaves the Beat byte-identical to
+        the pre-cap encoding (a vBank may override the cap when it drives the heartbeat).
 
         Raises if the resulting epoch does not strictly advance the last beat —
         the Pulse never goes backwards or stalls on the same epoch.
@@ -113,10 +138,26 @@ class Pulse:
             timestamp=timestamp,
             state_root=state_root,
             prev_beat=prev,
+            epoch_mint_cap=epoch_mint_cap,
         )
         self._last = beat
         self.beats.append(beat)
         return beat
+
+    def cap_for_epoch(self, epoch: int) -> int | None:
+        """The per-epoch mint cap carried by the recorded Beat(s) for ``epoch``.
+
+        Returns the ``epoch_mint_cap`` of the recorded Beat for ``epoch`` (the last one
+        if several share the epoch), or ``None`` when no Beat for the epoch carries a
+        cap. This lets token minting treat the signed heartbeat as the consensus-visible
+        monetary governor rather than relying on runtime policy config.
+        """
+        _require_int("epoch", epoch)
+        cap: int | None = None
+        for b in self.beats:  # ordered list; last matching Beat wins (deterministic)
+            if b.epoch == epoch and b.epoch_mint_cap is not None:
+                cap = b.epoch_mint_cap
+        return cap
 
     def verify_chain(self) -> bool:
         """Verify the recorded beats form a strictly increasing, linked chain."""
