@@ -25,8 +25,60 @@ def test_same_source_grinder_cannot_dominate_a_bucket():
     assert len(bucket) == cap  # capped despite the bucket still having room
 
     # Honest peers from DISTINCT source groups are still admitted.
-    bucket.offer(Contact(_id(100), PeerAddress("10.0.0.2", 8000), source=PeerAddress("198.51.100.9", 5000)))
-    bucket.offer(Contact(_id(101), PeerAddress("10.0.0.3", 8001), source=PeerAddress("192.0.2.9", 5000)))
+    bucket.offer(
+        Contact(
+            _id(100),
+            PeerAddress("10.0.0.2", 8000),
+            source=PeerAddress("198.51.100.9", 5000),
+        )
+    )
+    bucket.offer(
+        Contact(
+            _id(101),
+            PeerAddress("10.0.0.3", 8001),
+            source=PeerAddress("192.0.2.9", 5000),
+        )
+    )
+    assert len(bucket) == cap + 2
+
+
+def test_none_source_contacts_share_group_and_are_capped():
+    cap = 2
+    bucket = KBucket(k=8, source_cap=cap)
+
+    # Multiple contacts with source=None should all belong to the same source group
+    # via addrbook.source_group(None), and thus be collectively capped.
+    for n in range(6):
+        bucket.offer(
+            Contact(
+                _id(n + 1),
+                PeerAddress("10.0.0.1", 9000 + n),
+                source=None,
+            )
+        )
+
+    # Despite room in the bucket, locally-heard (source=None) contacts are capped
+    # by source_cap for their shared source group.
+    assert len(bucket) == cap
+
+    # Contacts from another (non-None) source group are still admitted beyond that cap.
+    other_source = PeerAddress("198.51.100.9", 5000)
+    bucket.offer(
+        Contact(
+            _id(100),
+            PeerAddress("10.0.0.2", 8000),
+            source=other_source,
+        )
+    )
+    bucket.offer(
+        Contact(
+            _id(101),
+            PeerAddress("10.0.0.3", 8001),
+            source=other_source,
+        )
+    )
+
+    # We should have the capped number of None-source contacts plus the others.
     assert len(bucket) == cap + 2
 
 
