@@ -19,6 +19,7 @@ from ..fabric import provenance
 from ..fabric.items import web_state_root
 from ..fabric.spatial_index import SpatialIndex
 from ..fabric.web import Web
+from .backends import InMemoryBackend, RetrieveBackend
 
 __all__ = ["CandidateSet", "Candidate", "retrieve"]
 
@@ -36,19 +37,6 @@ def _require_iterable(name: str, value: Iterable[str] | None) -> tuple[str, ...]
     return tuple(out)
 
 
-def _in_scope(record: dict, scope: tuple[str, ...] | None) -> bool:
-    if scope is None:
-        return True
-    values = {record.get("kind"), record.get("scope"), record.get("domain"), record.get("namespace")}
-    if any(v in scope for v in values if isinstance(v, str)):
-        return True
-    tags = record.get("tags")
-    if isinstance(tags, (list, tuple, set)):
-        if any(str(tag) in scope for tag in tags):
-            return True
-    return False
-
-
 def _to_query_dict(query: str | Mapping[str, object]) -> Mapping[str, object]:
     if isinstance(query, Mapping):
         return query
@@ -57,40 +45,6 @@ def _to_query_dict(query: str | Mapping[str, object]) -> Mapping[str, object]:
     if not query:
         raise ValueError("query must not be empty")
     return {"text": query}
-
-
-def _query_seeds(query: Mapping[str, object], web: Web) -> tuple[str, ...]:
-    if "seed" in query:
-        seeds = query["seed"]
-        if isinstance(seeds, str):
-            return (seeds,)
-        if not isinstance(seeds, (list, tuple, set)):
-            raise TypeError("query['seed'] must be str, list, tuple, or set")
-        out: list[str] = []
-        for sid in seeds:
-            if not isinstance(sid, str) or not sid:
-                raise TypeError("seed values must be non-empty str")
-            out.append(sid)
-        return tuple(out)
-
-    text = query.get("text")
-    if isinstance(text, str) and text in web.nodes:
-        return (text,)
-
-    kinds: tuple[str, ...] = ()
-    if "kind" in query:
-        k = query["kind"]
-        kinds = (str(k),) if isinstance(k, str) else tuple(str(i) for i in k) if isinstance(k, Iterable) else ()
-    out = []
-    for cid, record in sorted(web.nodes.items(), key=lambda kv: kv[0]):
-        if kinds and str(record.get("kind", "")) not in kinds:
-            continue
-        if "text" in query and isinstance(text, str):
-            haystack = " ".join(str(v) for v in record.values())
-            if str(text).lower() not in haystack.lower():
-                continue
-        out.append(cid)
-    return tuple(out)
 
 
 def _query_rels(query: Mapping[str, object]) -> set[str] | None:
@@ -142,6 +96,7 @@ def retrieve(
     depth: int = 2,
     web_state_cid: str | None = None,
     spatial_index: SpatialIndex | None = None,
+    backend: RetrieveBackend | None = None,
 ) -> CandidateSet:
     """Return a deterministic, subscription-gated candidate set from ``web``.
 
@@ -158,6 +113,10 @@ def retrieve(
         fast so a stale snapshot cannot silently cross web epochs.
     spatial_index
         Optional spatial index to union with graph traversal.
+    backend
+        Pluggable candidate-selection backend (IL-116).  Defaults to
+        ``InMemoryBackend`` (pure graph traversal).  Any backend's output is
+        re-validated against the live Web — phantom CIDs are silently dropped.
     """
     if depth < 0:
         raise ValueError("depth must be >= 0")
@@ -169,31 +128,17 @@ def retrieve(
     q = _to_query_dict(query)
     rel_filter = _query_rels(q)
 
-    seed_cids = _query_seeds(q, web)
-    if not seed_cids:
+    _backend = backend if backend is not None else InMemoryBackend()
+    raw_cids = _backend.select(q, scope, web, depth=depth, rel_filter=rel_filter, spatial_index=spatial_index)
+
+    # Re-validation gate: a backend can speed selection but cannot introduce
+    # a CID absent from the current Web.
+    scoped = [cid for cid in raw_cids if cid in web.nodes]
+
+    if not scoped:
         current = web_state_cid or web_state_root(web)
         return CandidateSet(query=q, subscription=scope, web_state_cid=current,
-                           cids=(), candidates=(), source_ancestries=())
-
-    discovered: list[str] = []
-    for sid in seed_cids:
-        if sid in web.nodes and sid not in discovered:
-            discovered.append(sid)
-        for c in sorted(web.traverse(sid, depth=depth, rels=rel_filter)):
-            if c not in discovered:
-                discovered.append(c)
-
-    if spatial_index is not None and "geohash" in q and "precision" in q:
-        precision = q.get("precision")
-        if not isinstance(precision, int):
-            raise TypeError("query['precision'] must be int when spatial query is used")
-        geohash = str(q["geohash"])
-        near = spatial_index.near(geohash, precision, alt_band=q.get("alt_band"))  # type: ignore[arg-type]
-        for cid in near:
-            if cid not in discovered:
-                discovered.append(cid)
-
-    scoped = [cid for cid in discovered if _in_scope(web.nodes[cid], scope)]
+                            cids=(), candidates=(), source_ancestries=())
 
     def _candidate_reputation(cid: str) -> int:
         score = 0
