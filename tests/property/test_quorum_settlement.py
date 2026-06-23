@@ -110,6 +110,22 @@ def test_declared_fault_refunds_consumer():
 
 
 @pytest.mark.property
+def test_confirmed_quorum_with_insufficient_balance_returns_inconclusive():
+    job, proofs, _ = _make_job_and_proofs(n=3)
+    # Consumer only has 2 PLS but the job costs 3; quorum confirms but payment fails.
+    consumer = AccountNode(genesis_balances={"PLS": 2})
+    worker = AccountNode()
+
+    paid, result = settle_on_quorum(consumer, worker, 3, job, proofs, timestamp=1)
+
+    assert paid is False
+    assert result.outcome is Outcome.INCONCLUSIVE
+    assert result.releases is False
+    assert consumer.balance("PLS") == 2
+    assert worker.balance("PLS") == 0
+
+
+@pytest.mark.property
 def test_proofs_to_verdicts_maps_honest_and_fraud():
     job, honest_proofs, _ = _make_job_and_proofs(n=1)
     tampered = WorkProof(

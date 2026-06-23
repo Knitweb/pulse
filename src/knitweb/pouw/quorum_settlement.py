@@ -16,7 +16,7 @@ from __future__ import annotations
 from ..ledger.node import AccountNode
 from .escrow import settle_on_verify
 from .job import SynapticCompileJob, WorkProof, verify
-from .quorum import QuorumResult, Verdict, tally
+from .quorum import Outcome, QuorumResult, Verdict, tally
 
 __all__ = ["proofs_to_verdicts", "settle_on_quorum"]
 
@@ -85,14 +85,33 @@ def settle_on_quorum(
     if not result.releases:
         return False, result
 
-    # Quorum confirmed: settle using any confirmed proof.  We use the first
-    # proof that verifies; settle_on_verify performs the final local check
-    # before touching ledger state.
+    def _inconclusive_from(result: QuorumResult) -> QuorumResult:
+        """Return a result with the same tallies but an INCONCLUSIVE outcome."""
+        return QuorumResult(
+            outcome=Outcome.INCONCLUSIVE,
+            confirms=result.confirms,
+            mismatches=result.mismatches,
+            abstains=result.abstains,
+            n=result.n,
+            threshold=result.threshold,
+        )
+
+    # Quorum confirmed: settle using any confirmed proof.  settle_on_verify
+    # performs the final local verification before touching ledger state.
     for proof in proofs:
         if verify(job, proof):
-            paid = settle_on_verify(consumer, worker, pulses, job, proof, timestamp)
-            return paid, result
+            try:
+                paid = settle_on_verify(consumer, worker, pulses, job, proof, timestamp)
+            except ValueError:
+                # Ledger transfer failed (e.g. insufficient escrow).  Downgrade to
+                # INCONCLUSIVE so callers never see releases=True while paid=False.
+                return False, _inconclusive_from(result)
+            if paid:
+                return True, result
+            # Proof failed final verification; fall through to defensive path.
+            return False, _inconclusive_from(result)
 
     # Defensive: tally said confirmed, yet no individual proof verified.
     # Treat as inconclusive and refuse payment.
-    return False, result
+    return False, _inconclusive_from(result)
+
