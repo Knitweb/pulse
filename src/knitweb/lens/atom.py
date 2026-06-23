@@ -99,6 +99,11 @@ class GroundedAtom(Atom):
             return object.__repr__(self.value)
 
     def __str__(self) -> str:
+        return self.render
+
+    @property
+    def render(self) -> str:
+        """Public, stable textual rendering used by interpretation and display."""
         return self._repr
 
     def _key(self) -> tuple:

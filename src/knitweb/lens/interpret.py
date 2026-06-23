@@ -27,7 +27,7 @@ def interpret(atom: Atom, binding: Binding | None = None) -> str:
         bound = binding.get(atom.name) if binding else None
         return interpret(bound) if bound else str(atom)
     if isinstance(atom, GroundedAtom):
-        return atom._repr
+        return atom.render
     if isinstance(atom, ExpressionAtom):
         inner = " ".join(interpret(child, binding) for child in atom.children)
         return f"({inner})"
@@ -65,13 +65,12 @@ def digest_context(
     else:
         atoms = space.atoms()
 
-    # Deduplicate while preserving order.
-    seen: set[int] = set()
+    # Deduplicate while preserving order (Atom is hashable/equatable).
+    seen: set[Atom] = set()
     unique: list[Atom] = []
     for atom in atoms:
-        h = hash(atom)
-        if h not in seen:
-            seen.add(h)
+        if atom not in seen:
+            seen.add(atom)
             unique.append(atom)
 
     if focus is not None and focus in space:

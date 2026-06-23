@@ -12,7 +12,7 @@ message bus, and virtualpc needs only a string/dict from this adapter.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 
 from ..core.pulse import Pulse, Beat
 from ..fabric.web import Web, Edge
@@ -22,7 +22,23 @@ from .atom import Atom, SymbolAtom, ExpressionAtom, GroundedAtom
 from .space import LensSpace
 from .interpret import digest_context, interpret
 
-__all__ = ["KnitwebLensAdapter"]
+__all__ = ["KnitwebLensAdapter", "DecodedBundle", "ResolvedAsset"]
+
+
+class DecodedBundle(TypedDict):
+    """Stable shape returned by :func:`knitweb.synaptic.bytecode.decode_bundle`."""
+
+    asset_cid: str
+    originator: str
+    relations: list[Relation]
+
+
+class ResolvedAsset(TypedDict):
+    """Stable shape returned by :func:`knitweb.synaptic.origintrail.resolve_asset`."""
+
+    asset_id: str
+    originator: str
+    relations: list[Relation]
 
 
 class KnitwebLensAdapter:
@@ -46,16 +62,19 @@ class KnitwebLensAdapter:
             self.space.add_all(_beat_to_atoms(beat))
 
     def ingest_web(self, web: Web) -> None:
-        """Add atoms for every node and edge in ``web``."""
+        """Add atoms for every node and edge in ``web``.
+
+        Uses public :meth:`Web.outgoing_edges` instead of the internal ``_out``
+        attribute so the adapter stays decoupled from the Web implementation.
+        """
         for cid, record in web.nodes.items():
             self.space.add_all(_node_to_atoms(cid, record))
-        for edges in web._out.values():
-            for edge in edges:
+            for edge in web.outgoing_edges(cid):
                 self.space.add_all(_edge_to_atoms(edge))
 
     def ingest_bundle(self, bundle: bytes) -> None:
         """Decode a Fiber synaptic bytecode bundle and add its atoms."""
-        decoded = decode_bundle(bundle)
+        decoded: DecodedBundle = decode_bundle(bundle)
         self.space.add_all(_bundle_to_atoms(decoded))
 
     def ingest_asset(self, asset: dict) -> None:
@@ -146,11 +165,8 @@ def _edge_to_atoms(edge: Edge) -> list[Atom]:
     ]
 
 
-def _bundle_to_atoms(decoded: dict) -> list[Atom]:
-    asset_cid = decoded["asset_cid"]
-    originator = decoded["originator"]
-    relations = decoded["relations"]
-    return _relations_to_atoms(asset_cid, originator, relations)
+def _bundle_to_atoms(decoded: DecodedBundle) -> list[Atom]:
+    return _relations_to_atoms(decoded["asset_cid"], decoded["originator"], decoded["relations"])
 
 
 def _relations_to_atoms(asset_id: str, originator: str, relations: list[Relation]) -> list[Atom]:

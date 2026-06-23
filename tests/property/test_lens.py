@@ -60,6 +60,27 @@ def test_grounded_atom_uses_stable_repr_for_equality():
 
 
 @pytest.mark.property
+def test_grounded_atom_differs_by_typename():
+    a = GroundedAtom({"x": 1}, "RecordA")
+    b = GroundedAtom({"x": 1}, "RecordB")
+    assert a != b
+    assert hash(a) != hash(b)
+
+
+@pytest.mark.property
+def test_grounded_atom_is_mutation_resilient():
+    mutable = {"x": 1}
+    a = GroundedAtom(mutable, "Record")
+    original_render = a.render
+    mutable["x"] = 2
+    # The atom's render/equality/hash must not change when the wrapped value is mutated.
+    assert a.render == original_render
+    b = GroundedAtom({"x": 1}, "Record")
+    assert a == b
+    assert hash(a) == hash(b)
+
+
+@pytest.mark.property
 def test_variable_only_differs_by_name():
     v1 = VariableAtom("x")
     v2 = VariableAtom("x")

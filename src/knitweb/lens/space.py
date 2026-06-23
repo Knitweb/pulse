@@ -8,7 +8,9 @@ unification engine, no interpreter, just structural matching over atoms.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from .atom import Atom, ExpressionAtom, SymbolAtom, VariableAtom
 
@@ -17,9 +19,17 @@ __all__ = ["LensSpace", "Binding"]
 
 @dataclass(frozen=True)
 class Binding:
-    """A variable binding produced by pattern matching."""
+    """A variable binding produced by pattern matching.
 
-    mapping: dict[str, Atom]
+    The mapping is exposed as a read-only :class:`~collections.abc.Mapping` and
+    copied on construction so the frozen binding cannot be mutated through the
+    underlying dict.
+    """
+
+    mapping: Mapping[str, Atom]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mapping", dict(self.mapping))
 
     def get(self, name: str) -> Atom | None:
         return self.mapping.get(name)
@@ -50,7 +60,7 @@ class LensSpace:
             raise TypeError("LensSpace.add expects an Atom")
         self._atoms.add(atom)
 
-    def add_all(self, atoms: list[Atom]) -> None:
+    def add_all(self, atoms: Iterable[Atom]) -> None:
         for atom in atoms:
             self.add(atom)
 
