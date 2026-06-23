@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from fpdf import FPDF
 from pathlib import Path
 
@@ -57,7 +58,7 @@ class MigrationPlanPDF(FPDF):
         self.ln(30)
         self.set_font("Helvetica", "B", 11)
         self.cell(0, 8, "Prepared by: Kimi Code CLI", align="C", new_x="LMARGIN", new_y="NEXT")
-        self.cell(0, 8, "Date: 2026-06-23", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 8, f"Date: {date.today().isoformat()}", align="C", new_x="LMARGIN", new_y="NEXT")
         self.cell(0, 8, "Target remote: git@github.com:Knitweb/pulse.git", align="C", new_x="LMARGIN", new_y="NEXT")
 
     def section_title(self, title: str) -> None:
