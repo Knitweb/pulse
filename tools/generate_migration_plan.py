@@ -6,24 +6,18 @@ from fpdf import FPDF
 from pathlib import Path
 
 
-_FONT_DIR = Path("/System/Library/Fonts/Supplemental")
-
-
 class MigrationPlanPDF(FPDF):
     def __init__(self) -> None:
         super().__init__(format="A4")
         self.set_auto_page_break(auto=True, margin=20)
         self.set_margins(20, 20, 20)
-        self.add_font("Arial", "", str(_FONT_DIR / "Arial.ttf"), uni=True)
-        self.add_font("Arial", "B", str(_FONT_DIR / "Arial Bold.ttf"), uni=True)
-        self.add_font("Arial", "I", str(_FONT_DIR / "Arial Italic.ttf"), uni=True)
-        self.add_font("Arial", "BI", str(_FONT_DIR / "Arial Bold Italic.ttf"), uni=True)
-        self.add_font("Code", "", str(_FONT_DIR / "Courier New.ttf"), uni=True)
+        # Use fpdf's built-in core fonts (Helvetica/Courier) so the script works
+        # on any platform without system TTF files or font vendoring.
 
     def header(self) -> None:
         if self.page_no() == 1:
             return
-        self.set_font("Arial", "I", 9)
+        self.set_font("Helvetica", "I", 9)
         self.set_text_color(100, 100, 100)
         self.cell(0, 10, "Knitweb Local Repository Migration Plan - Knitweb/pulse", align="L", new_x="LMARGIN", new_y="NEXT")
         self.set_xy(self.w - self.r_margin - 40, self.t_margin - 10)
@@ -33,21 +27,21 @@ class MigrationPlanPDF(FPDF):
         if self.page_no() == 1:
             return
         self.set_y(-15)
-        self.set_font("Arial", "I", 8)
+        self.set_font("Helvetica", "I", 8)
         self.set_text_color(128, 128, 128)
         self.cell(0, 10, "Internal migration planning document - do not distribute", align="C")
 
     def title_page(self) -> None:
         self.add_page()
-        self.set_font("Arial", "B", 24)
+        self.set_font("Helvetica", "B", 24)
         self.set_text_color(30, 30, 30)
         self.ln(60)
         self.cell(0, 15, "Local Repository Migration Plan", align="C", new_x="LMARGIN", new_y="NEXT")
-        self.set_font("Arial", "", 16)
+        self.set_font("Helvetica", "", 16)
         self.set_text_color(60, 60, 60)
         self.cell(0, 12, "Migrating in-flight branches to Knitweb/pulse", align="C", new_x="LMARGIN", new_y="NEXT")
         self.ln(20)
-        self.set_font("Arial", "", 11)
+        self.set_font("Helvetica", "", 11)
         self.set_text_color(80, 80, 80)
         self.multi_cell(
             0,
@@ -61,25 +55,25 @@ class MigrationPlanPDF(FPDF):
             align="C",
         )
         self.ln(30)
-        self.set_font("Arial", "B", 11)
+        self.set_font("Helvetica", "B", 11)
         self.cell(0, 8, "Prepared by: Kimi Code CLI", align="C", new_x="LMARGIN", new_y="NEXT")
         self.cell(0, 8, "Date: 2026-06-23", align="C", new_x="LMARGIN", new_y="NEXT")
         self.cell(0, 8, "Target remote: git@github.com:Knitweb/pulse.git", align="C", new_x="LMARGIN", new_y="NEXT")
 
     def section_title(self, title: str) -> None:
-        self.set_font("Arial", "B", 14)
+        self.set_font("Helvetica", "B", 14)
         self.set_text_color(30, 58, 138)
         self.cell(0, 10, title, new_x="LMARGIN", new_y="NEXT")
         self.ln(2)
 
     def body_text(self, text: str) -> None:
-        self.set_font("Arial", "", 10)
+        self.set_font("Helvetica", "", 10)
         self.set_text_color(30, 30, 30)
         self.multi_cell(0, 6, text)
         self.ln(3)
 
     def bullet(self, text: str) -> None:
-        self.set_font("Arial", "", 10)
+        self.set_font("Helvetica", "", 10)
         self.set_text_color(30, 30, 30)
         indent = 6
         x = self.l_margin + indent
@@ -90,7 +84,7 @@ class MigrationPlanPDF(FPDF):
 
     def code_block(self, text: str) -> None:
         self.set_fill_color(245, 245, 245)
-        self.set_font("Code", "", 9)
+        self.set_font("Courier", "", 9)
         self.set_text_color(40, 40, 40)
         self.multi_cell(0, 5, text, fill=True)
         self.ln(3)
@@ -98,7 +92,7 @@ class MigrationPlanPDF(FPDF):
     def warning(self, text: str) -> None:
         self.set_fill_color(255, 251, 235)
         self.set_draw_color(245, 158, 11)
-        self.set_font("Arial", "B", 10)
+        self.set_font("Helvetica", "B", 10)
         self.set_text_color(146, 64, 14)
         self.multi_cell(0, 6, f"  {text}", fill=True, border="L")
         self.ln(3)
@@ -106,7 +100,7 @@ class MigrationPlanPDF(FPDF):
     def note(self, text: str) -> None:
         self.set_fill_color(239, 246, 255)
         self.set_draw_color(59, 130, 246)
-        self.set_font("Arial", "", 10)
+        self.set_font("Helvetica", "", 10)
         self.set_text_color(30, 64, 175)
         self.multi_cell(0, 6, f"  {text}", fill=True, border="L")
         self.ln(3)
