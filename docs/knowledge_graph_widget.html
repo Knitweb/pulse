@@ -403,7 +403,7 @@
 
     let count = 0;
     matched.forEach((n, i) => {
-      const t = animTimers.push(setTimeout(() => {
+      animTimers.push(setTimeout(() => {
         const g = nodeEls[n.id];
         g.setAttribute("opacity", "1");
 
