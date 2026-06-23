@@ -44,6 +44,10 @@ class Fiber(str, Enum):
     CERTIFICATION = "certification"
 
 
+# Module-level lookup so normalize_fiber() does not rebuild the dict each call.
+_FIBER_BY_NAME: dict[str, Fiber] = {f.value.lower(): f for f in Fiber}
+
+
 @dataclass(frozen=True)
 class FiberMeta:
     """Convenience wrapper for a bundle's fiber metadata."""
@@ -55,7 +59,7 @@ class FiberMeta:
         return fiber_relations(asset_cid, self.fiber.value, self.domains)
 
 
-def normalize_fiber(name: str) -> Fiber:
+def normalize_fiber(name: str | Fiber) -> Fiber:
     """Return the canonical Fiber enum member for a loose name.
 
     Raises ``ValueError`` for unknown fibers so typos fail fast.
@@ -63,9 +67,8 @@ def normalize_fiber(name: str) -> Fiber:
     if isinstance(name, Fiber):
         return name
     key = name.strip().lower()
-    mapping = {f.value.lower(): f for f in Fiber}
     try:
-        return mapping[key]
+        return _FIBER_BY_NAME[key]
     except KeyError as exc:
         raise ValueError(f"unknown fiber: {name!r}") from exc
 
