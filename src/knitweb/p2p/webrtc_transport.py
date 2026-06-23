@@ -64,10 +64,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
-import logging
 from typing import Awaitable, Callable, Optional
-
-_log = logging.getLogger(__name__)
 
 from .relay import (
     ENVELOPE_PEER_KEY,
@@ -277,9 +274,7 @@ class WebRtcTransport:
         request[ENVELOPE_PEER_KEY] = webrtc_peer_id(peer_key)
         try:
             response = await self._handler(request)
-        except Exception as exc:
-            _log.exception("WebRtcTransport handler error from peer %s", peer_key, exc_info=exc)
-            self._on_inbound_fault(peer_key, "handler error")
+        except Exception:
             return
         try:
             out_frame = write_frame_bytes(response)
@@ -357,7 +352,7 @@ def pyodide_bridge(post_to_shell, self_key: str, mailbox: str) -> WorkerBridge:
 
         def on_inbound(self, peer_key: str, rid: int, frame: bytes) -> None:
             if self._inbound is not None:
-                asyncio.get_running_loop().create_task(self._inbound(peer_key, rid, frame))
+                asyncio.ensure_future(self._inbound(peer_key, rid, frame))
 
         def on_frame_fault(self, peer_key: str, error: str) -> None:
             if self._fault is not None:
