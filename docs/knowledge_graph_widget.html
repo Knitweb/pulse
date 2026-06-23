@@ -1,7 +1,7 @@
 <!--
   Knitweb Chemistry Knowledge Graph — interactive P2P graph widget
   Drop this <section> block into knitweb.art after the terminal demo section.
-  Uses inline SVG + vanilla JS (D3-style force simulation) — zero external deps.
+  Uses inline SVG + vanilla JS (fixed-position layout) — zero external deps.
 -->
 <style>
 #kg-demo {
@@ -198,7 +198,7 @@
     { x: 200, y: 100 },
     { x: 200, y: 200 },
     { x: 200, y: 300 },
-    { x: 200, y: 390 },
+    { x: 200, y: 370 },
   ];
 
   // Element nodes: cluster on the right
@@ -307,6 +307,7 @@
   nodes.forEach(n => {
     const g = el("g", { transform: `translate(${n.x},${n.y})`, cursor: "pointer", opacity: "0.35" });
 
+    g.dataset.baseStroke = n.color;
     if (n.type === "reaction") {
       // Hexagonal-ish pill for reactions
       const rect = el("rect", {
@@ -382,7 +383,12 @@
     animTimers = [];
     Object.values(nodeEls).forEach(g => {
       g.setAttribute("opacity", "0.2");
-      g.querySelector("rect,circle")?.setAttribute("filter", "");
+      const shape = g.querySelector("rect,circle");
+      if (shape) {
+        shape.setAttribute("filter", "");
+        shape.setAttribute("stroke", g.dataset.baseStroke || "#17BEBB");
+        shape.setAttribute("stroke-width", "1.5");
+      }
     });
     Object.values(edgeEls).forEach(l => {
       l.setAttribute("stroke", "#1f2737");
