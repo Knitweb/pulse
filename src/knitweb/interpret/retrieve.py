@@ -21,7 +21,28 @@ from ..fabric.spatial_index import SpatialIndex
 from ..fabric.subscription import in_subscription_scope
 from ..fabric.web import Web
 
-__all__ = ["CandidateSet", "Candidate", "retrieve"]
+__all__ = ["CandidateSet", "Candidate", "Subscription", "retrieve"]
+
+
+@dataclass(frozen=True)
+class Subscription:
+    """Explicit subscription scope for a retrieve call.
+
+    All numeric fields are integers — no float comparisons on the
+    deterministic candidate path.
+    """
+
+    scope: tuple[str, ...]
+    max_candidates: int = 128
+    min_reputation: int = 0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scope, tuple) or not all(isinstance(s, str) and s for s in self.scope):
+            raise TypeError("Subscription.scope must be a tuple of non-empty str")
+        if not isinstance(self.max_candidates, int) or isinstance(self.max_candidates, bool) or self.max_candidates < 1:
+            raise ValueError("Subscription.max_candidates must be a positive integer")
+        if not isinstance(self.min_reputation, int) or isinstance(self.min_reputation, bool) or self.min_reputation < 0:
+            raise ValueError("Subscription.min_reputation must be a non-negative integer")
 
 
 def _require_iterable(name: str, value: Iterable[str] | None) -> tuple[str, ...] | None:
@@ -149,7 +170,7 @@ class CandidateSet:
 
 def retrieve(
     query: str | Mapping[str, object],
-    subscription: Iterable[str] | None,
+    subscription: "Subscription | Iterable[str] | None",
     web: Web,
     *,
     depth: int = 2,
@@ -164,7 +185,8 @@ def retrieve(
     query
         A query string (seed CID or free text) or structured query mapping.
     subscription
-        One or more scope strings (``kind``/``scope`` style domains).
+        A :class:`Subscription` object, an iterable of scope strings, or ``None``
+        for unrestricted retrieval.
     web
         The shared web to query.
     web_state_cid
@@ -183,7 +205,12 @@ def retrieve(
     if web_state_cid is not None and web_state_root(web) != web_state_cid:
         raise ValueError("web_state_cid mismatch")
 
-    scope = _require_iterable("subscription", subscription)
+    sub_obj: Subscription | None = None
+    if isinstance(subscription, Subscription):
+        sub_obj = subscription
+        scope: tuple[str, ...] | None = subscription.scope or None
+    else:
+        scope = _require_iterable("subscription", subscription)
     q = _to_query_dict(query)
 
     # relation_types kwarg takes precedence over query['rel']
@@ -239,6 +266,13 @@ def retrieve(
 
     scored = [(cid, _candidate_reputation(cid)) for cid in scoped]
     ordered = sorted(scored, key=lambda item: (-item[1], item[0]))
+
+    if sub_obj is not None and sub_obj.min_reputation > 0:
+        ordered = [(cid, score) for cid, score in ordered if score >= sub_obj.min_reputation]
+
+    if sub_obj is not None:
+        ordered = ordered[: sub_obj.max_candidates]
+
     cids = tuple(cid for cid, _ in ordered)
     score_by_cid = {cid: score for cid, score in ordered}
 
