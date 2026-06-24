@@ -118,8 +118,33 @@ class CandidateSet:
     source_ancestries: tuple[tuple[str, ...], ...]
 
     def records(self, web: Web) -> dict[str, dict]:
-        """Return the full records for all candidate CIDs (lazy pull by ``web.get``)."""
-        return {cid: web.get(cid) for cid in self.cids if web.get(cid) is not None}
+        """Return records for all candidate CIDs.
+
+        CIDs present in ``web`` return their full record. CIDs that are
+        referenced by candidate edges but absent from ``web.nodes`` return a
+        sentinel ``{"kind": "missing", "cid": X}`` so callers can request the
+        missing node from peers instead of silently dropping provenance links.
+        """
+        out: dict[str, dict] = {}
+        present: list[str] = []
+        for cid in self.cids:
+            rec = web.get(cid)
+            if rec is not None:
+                out[cid] = rec
+                present.append(cid)
+            else:
+                out[cid] = {"kind": "missing", "cid": cid}
+
+        # Surface CIDs that are edge targets of present candidates but absent
+        # from web. Only the present CIDs (cached above) have outgoing edges to
+        # follow, so we never re-fetch a candidate record here.
+        for cid in present:
+            for edge in web.outgoing_edges(cid):
+                dst = edge.dst
+                if dst not in out and web.get(dst) is None:
+                    out[dst] = {"kind": "missing", "cid": dst}
+
+        return out
 
 
 def retrieve(
@@ -130,6 +155,7 @@ def retrieve(
     depth: int = 2,
     web_state_cid: str | None = None,
     spatial_index: SpatialIndex | None = None,
+    relation_types: Iterable[str] | None = None,
 ) -> CandidateSet:
     """Return a deterministic, subscription-gated candidate set from ``web``.
 
@@ -146,6 +172,10 @@ def retrieve(
         fast so a stale snapshot cannot silently cross web epochs.
     spatial_index
         Optional spatial index to union with graph traversal.
+    relation_types
+        Restrict traversal to edges whose ``rel`` is in this set. ``None`` (default)
+        follows all edge types. Takes precedence over ``query['rel']`` when both are
+        supplied so callers can filter without mutating the query mapping.
     """
     if depth < 0:
         raise ValueError("depth must be >= 0")
@@ -155,7 +185,18 @@ def retrieve(
 
     scope = _require_iterable("subscription", subscription)
     q = _to_query_dict(query)
-    rel_filter = _query_rels(q)
+
+    # relation_types kwarg takes precedence over query['rel']
+    if relation_types is not None:
+        if isinstance(relation_types, str):
+            raise TypeError("relation_types must be an iterable of str, not str")
+        rel_filter: set[str] | None = set()
+        for r in relation_types:
+            if not isinstance(r, str) or not r:
+                raise TypeError("relation_types entries must be non-empty str")
+            rel_filter.add(r)
+    else:
+        rel_filter = _query_rels(q)
 
     seed_cids = _query_seeds(q, web)
     if not seed_cids:
@@ -181,7 +222,8 @@ def retrieve(
             if cid not in discovered:
                 discovered.append(cid)
 
-    scoped = [cid for cid in discovered if in_subscription_scope(web.nodes[cid], scope)]
+    # Guard against edges pointing to nodes not yet synced to this web snapshot.
+    scoped = [c for c in discovered if c in web.nodes and in_subscription_scope(web.nodes[c], scope)]
 
     def _candidate_reputation(cid: str) -> int:
         score = 0
