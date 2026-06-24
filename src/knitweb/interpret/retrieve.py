@@ -126,20 +126,23 @@ class CandidateSet:
         missing node from peers instead of silently dropping provenance links.
         """
         out: dict[str, dict] = {}
+        present: list[str] = []
         for cid in self.cids:
             rec = web.get(cid)
             if rec is not None:
                 out[cid] = rec
+                present.append(cid)
             else:
                 out[cid] = {"kind": "missing", "cid": cid}
 
-        # Surface CIDs that are edge targets of candidates but absent from web.
-        for cid in self.cids:
-            if web.get(cid) is None:
-                continue
+        # Surface CIDs that are edge targets of present candidates but absent
+        # from web. Only the present CIDs (cached above) have outgoing edges to
+        # follow, so we never re-fetch a candidate record here.
+        for cid in present:
             for edge in web.outgoing_edges(cid):
-                if edge.dst not in out and web.get(edge.dst) is None:
-                    out[edge.dst] = {"kind": "missing", "cid": edge.dst}
+                dst = edge.dst
+                if dst not in out and web.get(dst) is None:
+                    out[dst] = {"kind": "missing", "cid": dst}
 
         return out
 
