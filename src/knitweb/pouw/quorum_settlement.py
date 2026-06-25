@@ -14,6 +14,7 @@ touches the account state.
 from __future__ import annotations
 
 from ..ledger.node import AccountNode
+from ..p2p.standing import PeerStanding
 from .escrow import settle_on_verify
 from .job import SynapticCompileJob, WorkProof, verify
 from .quorum import Outcome, QuorumResult, Verdict, tally
@@ -47,6 +48,7 @@ def settle_on_quorum(
     *,
     worker_declared_fault: bool = False,
     threshold: int | None = None,
+    standing: PeerStanding | None = None,
 ) -> tuple[bool, QuorumResult]:
     """Pay ``pulses`` from ``consumer`` to ``worker`` only after a confirming quorum.
 
@@ -69,6 +71,13 @@ def settle_on_quorum(
         ``DECLARED_FAULT`` (consumer is refunded).
     threshold:
         Optional explicit quorum threshold.  Defaults to a strict supermajority.
+    standing:
+        Optional :class:`~knitweb.p2p.standing.PeerStanding` ledger. When
+        supplied, a confirmed-and-paid settlement calls ``credit(worker.address)``
+        and a ``DECLARED_FAULT`` or ``DETECTED_FAULT`` calls
+        ``fault(worker.address)``. ``INCONCLUSIVE`` and defensive-path outcomes
+        leave standing unchanged. ``None`` (default) preserves the prior
+        behaviour — no standing side-effect.
 
     Returns
     -------
@@ -83,6 +92,14 @@ def settle_on_quorum(
         threshold=threshold,
     )
     if not result.releases:
+        # result.outcome is already final here (DECLARED_FAULT / DETECTED_FAULT /
+        # INCONCLUSIVE) — tally() set it before returning, so we can act on it
+        # directly. The _inconclusive_from() helper further below is only reached
+        # via the confirmed branch where a proof later fails, overriding outcome.
+        if standing is not None and result.outcome in (
+            Outcome.DECLARED_FAULT, Outcome.DETECTED_FAULT
+        ):
+            standing.fault(worker.address)
         return False, result
 
     def _inconclusive_from(result: QuorumResult) -> QuorumResult:
@@ -107,6 +124,8 @@ def settle_on_quorum(
                 # INCONCLUSIVE so callers never see releases=True while paid=False.
                 return False, _inconclusive_from(result)
             if paid:
+                if standing is not None:
+                    standing.credit(worker.address)
                 return True, result
             # Proof failed final verification; fall through to defensive path.
             return False, _inconclusive_from(result)
