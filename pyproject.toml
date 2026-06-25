@@ -34,6 +34,9 @@ p2p = ["py-libp2p"]
 compute = ["wgpu", "juliacall"]
 data = ["polars", "pyarrow>=23.0.1"]
 experiments = ["mlflow>=3.14.0"]
+# Real Fully Homomorphic Encryption backend (CKKS). The core stays dep-free;
+# install this only on nodes that actually run FHE compute.
+fhe = ["tenseal>=0.3.14"]
 dev = ["pytest>=9.0.3"]
 
 [tool.hatch.build.targets.wheel]

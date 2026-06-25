@@ -2,15 +2,27 @@
 
 Modules
 -------
+``fhe``       real FHE seam; optional CKKS backend behind ``knitweb[fhe]``.
+``additive``  Paillier — *partially* homomorphic (add-only), never FHE.
 ``fhe_cost``  honest wall-time / node-work / PLS estimator for FHE workloads.
 
-Future (separate PRs): ``fhe`` (real optional CKKS backend behind ``knitweb[fhe]``),
-``additive`` (Paillier — *partially* homomorphic, never labelled FHE),
-``zerotrust`` (authorize policy), ``enclave`` (TEE placement seam).
+Future (separate PRs): ``zerotrust`` (authorize policy), ``enclave`` (TEE seam).
 """
 
-from .fhe_cost import (
+from .additive import (
+    PaillierPrivateKey,
+    PaillierPublicKey,
+    generate_keypair,
+)
+from .fhe import (
     SCHEME_CKKS,
+    Ciphertext,
+    FHEBackendUnavailable,
+    FHEContext,
+    available_backends,
+    create_context,
+)
+from .fhe_cost import (
     SUPPORTED_RING_DEGREES,
     SUPPORTED_SCHEMES,
     Estimate,
@@ -22,7 +34,18 @@ from .fhe_cost import (
 )
 
 __all__ = [
+    # FHE seam (real FHE via optional backend)
     "SCHEME_CKKS",
+    "Ciphertext",
+    "FHEBackendUnavailable",
+    "FHEContext",
+    "available_backends",
+    "create_context",
+    # additive (Paillier — partially homomorphic, NOT FHE)
+    "PaillierPublicKey",
+    "PaillierPrivateKey",
+    "generate_keypair",
+    # cost model
     "SUPPORTED_RING_DEGREES",
     "SUPPORTED_SCHEMES",
     "Estimate",
