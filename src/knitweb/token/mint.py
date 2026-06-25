@@ -179,6 +179,16 @@ class Treasury:
             raise TypeError("escrow must be int")
         if escrow < 0:
             raise ValueError("escrow must be non-negative")
+        # Validate timestamp up-front, alongside escrow, BEFORE any state mutation.
+        # It flows into pulse.epoch_at and into the canonical Issuance record (its
+        # CID). A float would violate the integer-only-near-hash invariant and a
+        # bad value would otherwise only surface *after* the escrow transfer below
+        # (epoch_at / canonical both reject it late), leaving partial state — escrow
+        # moved, no issuance recorded, digest unmarked. Fail fast instead.
+        if not isinstance(timestamp, int) or isinstance(timestamp, bool):
+            raise TypeError("timestamp must be int")
+        if timestamp < 0:
+            raise ValueError("timestamp must be non-negative")
         if proof.digest in self._rewarded_digests:
             return None  # this work was already rewarded — no replay, no double-mint
         if escrow > 0:
