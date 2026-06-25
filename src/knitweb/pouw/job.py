@@ -189,6 +189,8 @@ def verification_policy(name: str) -> str:
 register_job_class("synaptic-compile", VERIFICATION_UNIFORM)
 register_job_class("distill", VERIFICATION_SPLIT)
 
+DISTILL_JOB_CLASS: JobClass = job_class("distill")
+
 
 def bundle_cid(bytecode: bytes) -> str:
     """Content commitment for a compiled distill bundle.
