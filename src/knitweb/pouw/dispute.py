@@ -35,6 +35,7 @@ from typing import Dict, List, Optional, Tuple
 
 from typing import Iterable
 
+from ..p2p.standing import PeerStanding
 from .collateral import Margin, is_sufficiently_collateralized, payout_at_risk
 from .quorum import Outcome, Verdict, tally
 
@@ -418,6 +419,8 @@ class RelevanceChallengeWindow:
         current_beat: int,
         verdicts: List[Verdict],
         quality_rep,           # SpiderQualityReputation — duck-typed to avoid circular dep
+        *,
+        standing: PeerStanding | None = None,
     ) -> Tuple[str, RelevanceChallenge]:
         """Resolve an open challenge once the window closes.
 
@@ -427,6 +430,12 @@ class RelevanceChallengeWindow:
           ``quality_rep.penalize(spider_id)``; challenger's stake is retained.
         * Any other outcome → **overturned**: spider is rewarded via
           ``quality_rep.reward(spider_id)``; challenger's stake is marked forfeit.
+
+        When ``standing`` is supplied, the same outcome also drives
+        :class:`~knitweb.p2p.standing.PeerStanding`: upheld calls
+        ``fault(spider)`` (breaks the streak); overturned calls
+        ``credit(spider)`` (streak grows). ``standing=None`` (default) leaves
+        standing unchanged — backward-compatible for existing callers.
 
         Returns ``(outcome_str, updated_challenge)`` where ``outcome_str`` is
         ``"upheld"`` or ``"overturned"``.
@@ -449,9 +458,13 @@ class RelevanceChallengeWindow:
 
         if result.outcome is Outcome.DETECTED_FAULT:
             quality_rep.penalize(ch.spider)
+            if standing is not None:
+                standing.fault(ch.spider)
             new_status = "upheld"
         else:
             quality_rep.reward(ch.spider)
+            if standing is not None:
+                standing.credit(ch.spider)
             new_status = "overturned"
 
         updated = RelevanceChallenge(
