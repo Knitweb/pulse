@@ -8,6 +8,7 @@ artifact candidate for downstream bytecode compilation.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Iterable, Mapping
@@ -22,6 +23,7 @@ from .retrieve import CandidateSet
 
 __all__ = [
     "DistillIterationLog",
+    "ProvenanceError",
     "Selection",
     "distill",
     "gate_relations",
@@ -32,6 +34,27 @@ _DISTILL_INTERMEDIATE_KIND = "distill-intermediate"
 _DISTILLED_FROM_REL = "distilled-from"
 
 _logger = logging.getLogger(__name__)
+
+_CID_RE = re.compile(r"^b[a-z2-7]{50,}$")
+
+
+class ProvenanceError(ValueError):
+    """Raised when a distill intermediate record is missing a valid provenance CID."""
+
+
+def _check_provenance_chain(record: dict) -> None:
+    """Raise ``ProvenanceError`` if ``record`` lacks a valid provenance CID.
+
+    The ``query_fingerprint`` field carries the CID commitment to the query; it
+    is the provenance root for every intermediate record emitted by distillation.
+    A missing or syntactically invalid fingerprint means the intermediate record
+    is unlinked from its source — which violates the distill output contract.
+    """
+    fp = record.get("query_fingerprint")
+    if not isinstance(fp, str) or not _CID_RE.match(fp):
+        raise ProvenanceError(
+            f"intermediate record missing valid query_fingerprint provenance CID: {fp!r}"
+        )
 
 
 def _require_int(name: str, value: int, minimum: int = 0) -> None:
@@ -275,6 +298,7 @@ def _emit_intermediate(
         relation_cid=relation_cid,
         mode=mode,
     )
+    _check_provenance_chain(intermediate_record)
     intermediate_cid = canonical.cid(intermediate_record)
     web.weave(intermediate_record)
     try:
