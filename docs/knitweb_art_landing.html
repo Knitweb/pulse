@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>knitweb — P2P Knowledge Fabric for LLM Agents</title>
+  <meta name="description"
+        content="Knitweb retrieves structured chemistry knowledge from the P2P fabric via Lens, eliminates 93% of tokens before the LLM call, and pushes generated code straight to GitHub.">
+
+  <!-- Three.js v0.160 via importmap — zero npm, zero build step -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+
+  <style>
+  /* ── reset ────────────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:   #07090f;
+    --bg2:  #0b0e14;
+    --bg3:  #11151f;
+    --line: #1f2737;
+    --a:    #17BEBB;
+    --b:    #2E6CF6;
+    --c:    #B8F35A;
+    --mut:  #9aa6bd;
+    --fg:   #e8ecf4;
+    --r:    16px;
+    --max:  1100px;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+  a { color: var(--a); text-decoration: none; }
+  a:hover { opacity: .8; }
+  h1, h2, h3 { line-height: 1.2; }
+  code, pre {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  }
+
+  /* ── 3-D canvas background ─────────────────────────────────────────── */
+  #bg3d {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  /* ── site wrapper ──────────────────────────────────────────────────── */
+  .site {
+    position: relative;
+    z-index: 1;
+  }
+  .inner {
+    max-width: var(--max);
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* ── nav ───────────────────────────────────────────────────────────── */
+  nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    max-width: var(--max);
+    margin: 0 auto;
+  }
+  .nav-logo {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -.5px;
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .nav-logo .hex {
+    width: 26px; height: 26px;
+    background: linear-gradient(135deg, var(--a), var(--b));
+    clip-path: polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);
+    flex-shrink: 0;
+  }
+  .nav-links {
+    display: flex;
+    gap: 20px;
+    font-size: 13.5px;
+    color: var(--mut);
+  }
+  .nav-links a { color: var(--mut); }
+  .nav-links a:hover { color: var(--fg); }
+
+  /* ── hero ──────────────────────────────────────────────────────────── */
+  .hero {
+    text-align: center;
+    padding: 80px 24px 64px;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  .badge-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+  .badge {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid;
+  }
+  .badge-a { color: var(--a); border-color: var(--a); }
+  .badge-b { color: var(--b); border-color: var(--b); }
+  .badge-c { color: var(--c); border-color: var(--c); }
+  .hero h1 {
+    font-size: clamp(2.2rem, 5vw, 3.6rem);
+    font-weight: 900;
+    letter-spacing: -1.5px;
+    margin-bottom: 18px;
+    background: linear-gradient(100deg, var(--fg) 0%, var(--a) 60%, var(--b) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero .lead {
+    font-size: 17px;
+    color: var(--mut);
+    max-width: 640px;
+    margin: 0 auto 32px;
+  }
+  .cta-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-size: 14.5px;
+    font-weight: 700;
+    background: linear-gradient(110deg, var(--a), var(--b));
+    color: #04111a;
+    transition: opacity .2s, transform .2s;
+  }
+  .btn-primary:hover { opacity: .88; transform: translateY(-1px); }
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 22px;
+    border-radius: 10px;
+    font-size: 14.5px;
+    font-weight: 600;
+    border: 1px solid var(--line);
+    color: var(--mut);
+    transition: border-color .2s, color .2s;
+  }
+  .btn-ghost:hover { border-color: var(--a); color: var(--fg); }
+
+  /* ── stat strip ────────────────────────────────────────────────────── */
+  .stats-strip {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    overflow: hidden;
+    margin: 0 24px 72px;
+    max-width: var(--max);
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .stat {
+    flex: 1;
+    padding: 20px 0;
+    text-align: center;
+    border-right: 1px solid var(--line);
+    background: rgba(255,255,255,.02);
+  }
+  .stat:last-child { border-right: none; }
+  .stat-num {
+    font-size: 2rem;
+    font-weight: 800;
+    display: block;
+  }
+  .stat-lbl {
+    font-size: 11.5px;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--mut);
+    display: block;
+    margin-top: 2px;
+  }
+
+  /* ── demo section ──────────────────────────────────────────────────── */
+  #demo {
+    max-width: var(--max);
+    margin: 0 auto 80px;
+    padding: 0 24px;
+  }
+  #demo h2 { font-size: 26px; margin-bottom: 6px; }
+  #demo .lead { color: var(--mut); margin-bottom: 24px; max-width: 680px; }
+
+  .demo-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 720px) { .demo-grid { grid-template-columns: 1fr; } }
+
+  /* terminal */
+  .term {
+    background: #060a10;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    overflow: hidden;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+  .term-bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 14px;
+    background: #0d1117;
+    border-bottom: 1px solid var(--line);
+  }
+  .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  .dot-r { background: #ff5f56; }
+  .dot-y { background: #ffbd2e; }
+  .dot-g { background: #27c93f; }
+  .term-title { margin-left: auto; font-size: 11px; color: var(--mut); }
+  .term-body { padding: 14px 16px; min-height: 320px; max-height: 480px; overflow-y: auto; }
+  .tl { display: block; white-space: pre; }
+  .tl-hdr  { color: var(--a); font-weight: 700; }
+  .tl-step { color: var(--b); font-weight: 700; }
+  .tl-ok   { color: var(--c); }
+  .tl-cid  { color: #4a5568; }
+  .tl-tok  { color: #c5a3ff; }
+  .tl-note { color: var(--mut); }
+  .tl-push { color: var(--b); }
+  .tl-done { color: var(--c); font-weight: 700; }
+  .cursor  {
+    display: inline-block;
+    width: 8px; height: 13px;
+    background: var(--a);
+    vertical-align: middle;
+    animation: blink .9s step-start infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* right stats panel */
+  .demo-panel { display: flex; flex-direction: column; gap: 14px; }
+  .stat-card {
+    background: rgba(255,255,255,.025);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 16px 18px;
+  }
+  .sc-label {
+    font-size: 11px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--mut);
+    font-weight: 600;
+  }
+  .sc-value {
+    font-size: 36px;
+    font-weight: 800;
+    margin: 4px 0 2px;
+  }
+  .sc-sub { font-size: 12px; color: var(--mut); }
+  .savings-bar-bg {
+    margin: 10px 0 4px;
+    height: 8px;
+    background: var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .savings-bar {
+    height: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--a), var(--b));
+    width: 0%;
+    transition: width 1.4s cubic-bezier(.22,.61,.36,1);
+  }
+
+  /* reactions list */
+  .rx-list { list-style: none; }
+  .rx-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 12.5px;
+    color: var(--mut);
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity .4s, transform .4s;
+  }
+  .rx-list li.visible { opacity: 1; transform: none; }
+  .rx-list li:last-child { border-bottom: none; }
+  .rx-icon { color: var(--c); font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+  .rx-eq   { font-size: 11px; color: #c5a3ff; font-family: 'SF Mono', monospace; }
+  .rx-cid  { font-size: 10px; color: #4a5568; margin-left: auto; flex-shrink: 0; }
+
+  /* CTA row */
+  .demo-cta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 16px;
+  }
+  .btn-replay {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    background: linear-gradient(110deg, var(--a), var(--b));
+    color: #06121a;
+    border: none;
+    cursor: pointer;
+    transition: opacity .2s;
+  }
+  .btn-replay:hover { opacity: .85; }
+  .run-cmd {
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+    background: #0d1117;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px 12px;
+    color: var(--mut);
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── how-it-works ──────────────────────────────────────────────────── */
+  .how {
+    max-width: var(--max);
+    margin: 0 auto 80px;
+    padding: 0 24px;
+  }
+  .how h2 { font-size: 26px; margin-bottom: 28px; }
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 820px) { .steps { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 500px) { .steps { grid-template-columns: 1fr; } }
+  .step-card {
+    background: rgba(255,255,255,.02);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 20px;
+    position: relative;
+  }
+  .step-num {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--a);
+    margin-bottom: 8px;
+  }
+  .step-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .step-body  { font-size: 12.5px; color: var(--mut); line-height: 1.5; }
+
+  /* ── quickstart ────────────────────────────────────────────────────── */
+  .quickstart {
+    max-width: var(--max);
+    margin: 0 auto 80px;
+    padding: 0 24px;
+  }
+  .quickstart h2 { font-size: 26px; margin-bottom: 6px; }
+  .quickstart .lead { color: var(--mut); margin-bottom: 20px; }
+  .code-block {
+    background: #060a10;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 20px 24px;
+    overflow-x: auto;
+  }
+  .code-block pre {
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--fg);
+  }
+  .sh  { color: #9aa6bd; }
+  .kw  { color: var(--a); }
+  .st  { color: var(--c); }
+  .cm  { color: #4a5568; }
+  .nb  { color: #c5a3ff; }
+
+  /* ── footer ────────────────────────────────────────────────────────── */
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 28px 24px;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    align-items: center;
+    max-width: var(--max);
+    margin: 0 auto;
+    font-size: 12.5px;
+    color: var(--mut);
+    flex-wrap: wrap;
+  }
+  </style>
+</head>
+<body>
+
+<!-- ── Three.js chemistry-graph background ── -->
+<canvas id="bg3d"></canvas>
+
+<div class="site">
+
+  <!-- NAV -->
+  <nav>
+    <span class="nav-logo">
+      <span class="hex"></span>
+      knitweb
+    </span>
+    <div class="nav-links">
+      <a href="#demo">Demo</a>
+      <a href="#how">How it works</a>
+      <a href="#run">Quickstart</a>
+      <a href="https://github.com/Knitweb/pulse">GitHub ↗</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="badge-row">
+      <span class="badge badge-c">93% token savings</span>
+      <span class="badge badge-a">P2P · 5mart.ml relay</span>
+      <span class="badge badge-b">CID-stable · v1</span>
+    </div>
+    <h1>P2P Knowledge Fabric<br>for LLM Agents</h1>
+    <p class="lead">
+      Knitweb retrieves structured chemistry knowledge from the peer-to-peer fabric via
+      <strong>Lens</strong>, eliminates 93&thinsp;% of tokens before the LLM call, and
+      pushes generated code straight to GitHub — in&nbsp;0.05&thinsp;s.
+    </p>
+    <div class="cta-row">
+      <a href="#demo" class="btn-primary">▶ Watch live demo</a>
+      <a href="https://github.com/Knitweb/pulse" class="btn-ghost">GitHub →</a>
+    </div>
+  </section>
+
+  <!-- STAT STRIP -->
+  <div class="stats-strip">
+    <div class="stat">
+      <span class="stat-num" style="color:var(--c)">93%</span>
+      <span class="stat-lbl">Token savings</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num" style="color:var(--a)">0.05s</span>
+      <span class="stat-lbl">End-to-end</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num" style="color:var(--b)">4</span>
+      <span class="stat-lbl">Reactions / query</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num" style="color:var(--c)">P2P</span>
+      <span class="stat-lbl">No central server</span>
+    </div>
+  </div>
+
+  <!-- LIVE DEMO -->
+  <section id="demo">
+    <div class="inner">
+      <h2>Live: LLM Agent on the P2P Knowledge Graph</h2>
+      <p class="lead">
+        The Chemistry Lens Agent queries balanced reactions from the knitweb fabric via
+        <strong>Lens</strong> (<code>interpret.retrieve</code>), distils 93&thinsp;% of tokens
+        before the LLM call, and pushes the generated Python module to GitHub.
+      </p>
+
+      <div class="demo-grid">
+
+        <!-- Terminal -->
+        <div class="term">
+          <div class="term-bar">
+            <span class="dot dot-r"></span>
+            <span class="dot dot-y"></span>
+            <span class="dot dot-g"></span>
+            <span class="term-title">chemistry_lens_agent_demo.py</span>
+          </div>
+          <div class="term-body" id="term-body">
+            <span class="tl tl-hdr">  ╔════════════════════════════════════════╗</span>
+            <span class="tl tl-hdr">  ║  Knitweb · Chemistry Lens Agent        ║</span>
+            <span class="tl tl-hdr">  ╚════════════════════════════════════════╝</span>
+            <span class="tl"> </span>
+            <span class="cursor" id="cursor"></span>
+          </div>
+        </div>
+
+        <!-- Stats panel -->
+        <div class="demo-panel">
+
+          <!-- Token savings -->
+          <div class="stat-card">
+            <div class="sc-label">Token savings</div>
+            <div class="sc-value" id="savings-pct" style="color:var(--c)">0%</div>
+            <div class="savings-bar-bg"><div class="savings-bar" id="savings-bar"></div></div>
+            <div class="sc-sub">
+              Naïve: <span id="tok-naive">—</span> tokens
+              → Lens: <span id="tok-lens">—</span> tokens
+            </div>
+          </div>
+
+          <!-- Retrieved reactions -->
+          <div class="stat-card">
+            <div class="sc-label">Reactions retrieved via Lens</div>
+            <ul class="rx-list" id="rx-list">
+              <li data-idx="0">
+                <span class="rx-icon">⚗</span>
+                <div>
+                  <div>Haber-Bosch NH₃ synthesis</div>
+                  <div class="rx-eq">N₂ + 3H₂ → 2NH₃</div>
+                </div>
+                <span class="rx-cid" id="cid-0">pending…</span>
+              </li>
+              <li data-idx="1">
+                <span class="rx-icon">⚗</span>
+                <div>
+                  <div>CO₂ hydrogenation → acetic acid</div>
+                  <div class="rx-eq">2CO₂ + 4H₂ → CH₃COOH + 2H₂O</div>
+                </div>
+                <span class="rx-cid" id="cid-1">pending…</span>
+              </li>
+              <li data-idx="2">
+                <span class="rx-icon">⚗</span>
+                <div>
+                  <div>V₂O₅ reduction (VRFB)</div>
+                  <div class="rx-eq">V₂O₅ + H₂ → V₂O₄ + H₂O</div>
+                </div>
+                <span class="rx-cid" id="cid-2">pending…</span>
+              </li>
+              <li data-idx="3">
+                <span class="rx-icon">⚗</span>
+                <div>
+                  <div>Vanadyl sulfate preparation</div>
+                  <div class="rx-eq">V₂O₄ + 2H₂SO₄ → 2VOSO₄ + 2H₂O</div>
+                </div>
+                <span class="rx-cid" id="cid-3">pending…</span>
+              </li>
+            </ul>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="demo-cta">
+        <button class="btn-replay" id="btn-replay">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M2.5 8a5.5 5.5 0 0 1 9.15-4.13l-1.2 1.2A3.5 3.5 0 1 0 11.5 8H13a5.5 5.5 0 1 1-10.5 0z"/>
+            <path d="M10.5 1v4h-4l4-4z"/>
+          </svg>
+          Replay demo
+        </button>
+        <code class="run-cmd">PYTHONPATH=src python examples/chemistry_lens_agent_demo.py</code>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section id="how" class="how">
+    <h2>How the agent works</h2>
+    <div class="steps">
+      <div class="step-card">
+        <div class="step-num">STEP 01</div>
+        <div class="step-title">Seed the fabric</div>
+        <div class="step-body">
+          Spider nodes sign mass-balanced reactions (ChemistryKnitweb) and weave them
+          into the P2P web. Each record gets a deterministic CID via
+          <code>canonical_cid()</code>. Propagated over the 5mart.ml relay.
+        </div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">STEP 02</div>
+        <div class="step-title">Lens retrieval</div>
+        <div class="step-body">
+          <code>interpret.retrieve()</code> runs a subscription-gated graph walk from
+          query seeds, returning a frozen <code>CandidateSet</code> with provenance
+          roots — without ever touching raw model weights.
+        </div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">STEP 03</div>
+        <div class="step-title">Token distillation</div>
+        <div class="step-body">
+          The Lens layer strips each record to its relational skeleton
+          (equation + kind). Full JSON: 1 066 tokens. Distilled: 74 tokens.
+          <strong style="color:var(--c)">93% eliminated</strong> before the LLM
+          call — saving $0.003 per request at GPT-4 pricing.
+        </div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">STEP 04</div>
+        <div class="step-title">Code → GitHub</div>
+        <div class="step-body">
+          The agent synthesises a typed Python module (80 lines) from the
+          recovered reactions and pushes it to GitHub via the Contents REST API
+          — no git binary required. Set <code>GITHUB_TOKEN</code> +
+          <code>GITHUB_REPO</code> to push for real.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUICKSTART -->
+  <section id="run" class="quickstart">
+    <h2>Run it yourself</h2>
+    <p class="lead">
+      Clone, install, and run the chemistry agent demo in three commands.
+      No API keys needed for the dry-run. Set <code>GITHUB_TOKEN</code> to push real code.
+    </p>
+    <div class="code-block">
+      <pre>
+<span class="sh"># 1  clone</span>
+<span class="kw">git</span> clone https://github.com/Knitweb/pulse &amp;&amp; <span class="kw">cd</span> pulse
+
+<span class="sh"># 2  install (venv recommended)</span>
+<span class="kw">pip</span> install cryptography
+
+<span class="sh"># 3  run the Chemistry Lens Agent demo</span>
+<span class="kw">PYTHONPATH=src</span> <span class="nb">python</span> examples/chemistry_lens_agent_demo.py
+
+<span class="cm"># → seeds 4 reactions, retrieves via Lens, saves 93% tokens, synthesises 80 lines</span>
+<span class="cm"># → set GITHUB_TOKEN=&lt;pat&gt; GITHUB_REPO=owner/repo to push generated code for real</span></pre>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <span>⬡ knitweb · <a href="https://knitweb.art">knitweb.art</a></span>
+    <span>VirtualV Holding B.V. · 5mart.ml relay · <a href="https://github.com/Knitweb/pulse">GitHub</a></span>
+  </footer>
+
+</div><!-- .site -->
+
+<!-- ════════════════════════════════════════════════════════════════════
+     Three.js — 3-D chemistry graph background
+     Floating molecule nodes (spheres) + reaction edges (lines),
+     slow auto-rotation, per-node glow pulse, drifting star field.
+     ════════════════════════════════════════════════════════════════ -->
+<script type="module">
+import * as THREE from 'three';
+
+const canvas  = document.getElementById('bg3d');
+const W = () => window.innerWidth;
+const H = () => window.innerHeight;
+
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(W(), H());
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, W() / H(), 0.1, 120);
+camera.position.set(0, 0, 10);
+
+window.addEventListener('resize', () => {
+  camera.aspect = W() / H();
+  camera.updateProjectionMatrix();
+  renderer.setSize(W(), H());
+});
+
+// ── star field ──────────────────────────────────────────────────────────
+const starCount  = 320;
+const starPosArr = new Float32Array(starCount * 3);
+for (let i = 0; i < starCount * 3; i++) {
+  starPosArr[i] = (Math.random() - 0.5) * 60;
+}
+const starGeo = new THREE.BufferGeometry();
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPosArr, 3));
+scene.add(new THREE.Points(
+  starGeo,
+  new THREE.PointsMaterial({ color: 0x445566, size: 0.05, sizeAttenuation: true })
+));
+
+// ── canvas-texture label sprite ─────────────────────────────────────────
+function makeLabelSprite(text, color) {
+  const cv = document.createElement('canvas');
+  cv.width = 160; cv.height = 44;
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, 160, 44);
+  ctx.font = 'bold 20px "SF Mono", "Fira Code", monospace';
+  ctx.fillStyle = color;
+  ctx.textAlign  = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 80, 22);
+  const tex = new THREE.CanvasTexture(cv);
+  const spr = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false })
+  );
+  spr.scale.set(1.8, 0.5, 1);
+  return spr;
+}
+
+// ── molecule node data ───────────────────────────────────────────────────
+const HEX_A = 0x17BEBB;  // teal
+const HEX_B = 0x2E6CF6;  // blue
+const HEX_C = 0xB8F35A;  // green
+const HEX_Y = 0xffb300;  // amber (vanadium)
+const HEX_M = 0xc5a3ff;  // purple
+
+const NODES = [
+  { id: 'N2',      label: 'N₂',       hex: HEX_B,  pos: [-3.2,  0.8,  1.2] },
+  { id: 'H2',      label: 'H₂',       hex: 0xe8ecf4, pos: [ 0.0,  2.4,  0.0] },
+  { id: 'NH3',     label: 'NH₃',      hex: HEX_C,  pos: [-1.8, -1.4,  2.0] },
+  { id: 'CO2',     label: 'CO₂',      hex: 0xff7043, pos: [ 3.0,  0.6, -0.8] },
+  { id: 'CH3COOH', label: 'CH₃COOH', hex: HEX_C,  pos: [ 2.0, -1.8,  1.4] },
+  { id: 'H2O',     label: 'H₂O',     hex: HEX_A,  pos: [ 0.4, -2.6, -0.6] },
+  { id: 'V2O5',    label: 'V₂O₅',    hex: HEX_Y,  pos: [-2.0,  1.2, -2.4] },
+  { id: 'V2O4',    label: 'V₂O₄',    hex: 0xffa000, pos: [-0.6, -0.4, -2.8] },
+  { id: 'H2SO4',   label: 'H₂SO₄',  hex: 0xffeb3b, pos: [ 1.8,  2.0, -2.2] },
+  { id: 'VOSO4',   label: 'VOSO₄',   hex: 0xff9800, pos: [ 3.0, -1.2, -1.2] },
+];
+
+// Reaction edges (drawn as lines between node positions)
+const EDGES = [
+  ['N2',   'NH3'],    // Haber-Bosch reactant → product
+  ['H2',   'NH3'],
+  ['CO2',  'CH3COOH'],
+  ['H2',   'H2O'],
+  ['CO2',  'H2O'],
+  ['V2O5', 'V2O4'],
+  ['H2',   'V2O4'],
+  ['V2O4', 'VOSO4'],
+  ['H2SO4','VOSO4'],
+  ['H2SO4','H2O'],
+];
+
+// ── build scene graph ────────────────────────────────────────────────────
+const group    = new THREE.Group();
+const nodeMap  = {};
+const glowList = [];  // { mesh, basePulse } for animation
+scene.add(group);
+
+NODES.forEach((n, i) => {
+  // Core sphere
+  const coreGeo = new THREE.SphereGeometry(0.11, 20, 20);
+  const coreMat = new THREE.MeshBasicMaterial({ color: n.hex });
+  const core    = new THREE.Mesh(coreGeo, coreMat);
+  core.position.set(...n.pos);
+
+  // Outer glow (larger, transparent)
+  const glowGeo = new THREE.SphereGeometry(0.22, 20, 20);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: n.hex, transparent: true, opacity: 0.12,
+  });
+  const glow = new THREE.Mesh(glowGeo, glowMat);
+  core.add(glow);
+  glowList.push({ mesh: glow, phase: i * 0.72 });
+
+  // Label sprite above node
+  const label = makeLabelSprite(n.label, `#${n.hex.toString(16).padStart(6,'0')}`);
+  label.position.y = 0.38;
+  core.add(label);
+
+  group.add(core);
+  nodeMap[n.id] = core;
+});
+
+// Edges (lines between node positions in world space, parented to group)
+EDGES.forEach(([aId, bId]) => {
+  const pA = new THREE.Vector3(...nodeMap[aId].position.toArray());
+  const pB = new THREE.Vector3(...nodeMap[bId].position.toArray());
+  const geo = new THREE.BufferGeometry().setFromPoints([pA, pB]);
+  const mat = new THREE.LineBasicMaterial({
+    color: 0x1f3054, transparent: true, opacity: 0.55,
+  });
+  group.add(new THREE.Line(geo, mat));
+});
+
+// ── animate ──────────────────────────────────────────────────────────────
+let tick = 0;
+// Gentle mouse parallax
+let mxN = 0, myN = 0;
+window.addEventListener('mousemove', e => {
+  mxN = (e.clientX / innerWidth  - 0.5) * 2;
+  myN = (e.clientY / innerHeight - 0.5) * 2;
+});
+
+(function animate() {
+  requestAnimationFrame(animate);
+  tick += 0.008;
+
+  // Slow rotation + slight sway
+  group.rotation.y  = tick * 0.25 + mxN * 0.08;
+  group.rotation.x  = Math.sin(tick * 0.4) * 0.06 - myN * 0.05;
+
+  // Glow pulse on each node
+  glowList.forEach(g => {
+    const s = 1 + 0.28 * Math.sin(tick * 1.8 + g.phase);
+    g.mesh.scale.setScalar(s);
+    g.mesh.material.opacity = 0.08 + 0.08 * Math.abs(Math.sin(tick + g.phase));
+  });
+
+  // Star drift (very slow upward)
+  const starPos = starGeo.attributes.position.array;
+  for (let i = 1; i < starCount * 3; i += 3) {
+    starPos[i] += 0.003;
+    if (starPos[i] > 30) starPos[i] = -30;
+  }
+  starGeo.attributes.position.needsUpdate = true;
+
+  renderer.render(scene, camera);
+})();
+</script>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     Terminal demo animation — vanilla JS, no module
+     ════════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  // Illustrative CIDs (match bafyrei prefix from real runs)
+  const CIDS = [
+    "bafyreickxt2bp7eua…",
+    "bafyreieujpy43zug3…",
+    "bafyreih256hmse6x6…",
+    "bafyreiddiqowwjcie…",
+  ];
+
+  const STEPS = [
+    { delay:  350, cls: "tl-step", text: "[1] Seeding chemistry knowledge graph (P2P spider role)" },
+    { delay:  650, cls: "tl-ok",   text: "    ✓ Haber-Bosch NH3 synthesis          cid=bafyreickxt…", rx: 0 },
+    { delay:  920, cls: "tl-ok",   text: "    ✓ CO2 hydrogenation to acetic acid   cid=bafyreieujp…", rx: 1 },
+    { delay: 1180, cls: "tl-ok",   text: "    ✓ V2O5 reduction to V2O4             cid=bafyreih256…", rx: 2 },
+    { delay: 1440, cls: "tl-ok",   text: "    ✓ Vanadyl sulfate preparation         cid=bafyreiddi…",  rx: 3 },
+    { delay: 1700, cls: "tl-note", text: "    › 4 reactions woven · propagated over 5mart.ml relay" },
+    { delay: 2100, cls: "tl-step", text: "[2] Lens retrieval — interpret.retrieve() querying P2P fabric" },
+    { delay: 2400, cls: "tl-ok",   text: "    › 1 record ← 'VOSO4'   [VRFB vanadyl sulfate]" },
+    { delay: 2680, cls: "tl-ok",   text: "    › 1 record ← 'V2O5'    [VRFB V₂O₅ reduction]" },
+    { delay: 2940, cls: "tl-ok",   text: "    › 1 record ← 'NH3'     [NH BLOOM synthesis]" },
+    { delay: 3200, cls: "tl-ok",   text: "    › 1 record ← 'CH3COOH' [CO₂ → acetic acid]" },
+    { delay: 3460, cls: "tl-note", text: "    › Total unique: 4 records" },
+    { delay: 3860, cls: "tl-step", text: "[3] Token distillation — Lens vs. naïve full-JSON", savings: true },
+    { delay: 4260, cls: "tl-note", text: "    › Naïve (full JSON) : 1 066 tokens  ████████████████████" },
+    { delay: 4660, cls: "tl-tok",  text: "    › Lens distilled    :    74 tokens  █" },
+    { delay: 5060, cls: "tl-ok",   text: "    › Saved             : 93%  (992 tokens → $0.003/req at GPT-4)" },
+    { delay: 5460, cls: "tl-step", text: "[4] Synthesising typed Python module (80 lines / 3 369 chars)" },
+    { delay: 5760, cls: "tl-note", text: "    › def reaction_n2___3_h2____2_nh3() → Reaction: …" },
+    { delay: 5960, cls: "tl-note", text: "    › def reaction_2_co2___4_h2____ch3cooh() → …" },
+    { delay: 6360, cls: "tl-step", text: "[5] Pushing generated module to GitHub via Contents API" },
+    { delay: 6660, cls: "tl-push", text: "    › Pushed → github.com/Knitweb/pulse/generated/chemistry_reactions.py" },
+    { delay: 7060, cls: "tl-done", text: "  ✓ Done  in 0.05 s  |  reactions=4  saved=93%  lines=80" },
+  ];
+
+  function addLine(cls, text) {
+    const body   = document.getElementById('term-body');
+    const cursor = document.getElementById('cursor');
+    const span   = document.createElement('span');
+    span.className = 'tl ' + cls;
+    span.textContent = text;
+    body.insertBefore(span, cursor);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function animateSavings() {
+    document.getElementById('tok-naive').textContent = '1 066';
+    document.getElementById('tok-lens').textContent  = '74';
+    let pct = 0;
+    const bar   = document.getElementById('savings-bar');
+    const label = document.getElementById('savings-pct');
+    bar.style.width = '93%';
+    const iv = setInterval(() => {
+      pct = Math.min(93, pct + 3);
+      label.textContent = pct + '%';
+      if (pct >= 93) clearInterval(iv);
+    }, 38);
+  }
+
+  function showReaction(idx) {
+    const li = document.querySelector('[data-idx="' + idx + '"]');
+    if (!li) return;
+    li.classList.add('visible');
+    const cidEl = document.getElementById('cid-' + idx);
+    if (cidEl) cidEl.textContent = CIDS[idx];
+  }
+
+  function runDemo() {
+    const body   = document.getElementById('term-body');
+    const cursor = document.getElementById('cursor');
+    body.innerHTML = '';
+    body.appendChild(cursor);
+
+    [
+      "  ╔════════════════════════════════════════╗",
+      "  ║  Knitweb · Chemistry Lens Agent        ║",
+      "  ╚════════════════════════════════════════╝",
+      " ",
+    ].forEach(t => addLine('tl-hdr', t));
+
+    document.getElementById('savings-pct').textContent  = '0%';
+    document.getElementById('savings-bar').style.width  = '0%';
+    document.getElementById('tok-naive').textContent = '—';
+    document.getElementById('tok-lens').textContent  = '—';
+    document.querySelectorAll('.rx-list li').forEach(li => li.classList.remove('visible'));
+    document.querySelectorAll('[id^="cid-"]').forEach(el => el.textContent = 'pending…');
+
+    STEPS.forEach(s => {
+      setTimeout(() => {
+        addLine(s.cls, s.text);
+        if (s.savings) animateSavings();
+        if (s.rx !== undefined) showReaction(s.rx);
+      }, s.delay);
+    });
+  }
+
+  document.getElementById('btn-replay').addEventListener('click', runDemo);
+
+  // Auto-start when 25% visible
+  if ('IntersectionObserver' in window) {
+    let started = false;
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && !started) {
+        started = true;
+        setTimeout(runDemo, 300);
+      }
+    }, { threshold: 0.25 });
+    obs.observe(document.getElementById('demo'));
+  } else {
+    runDemo();
+  }
+})();
+</script>
+
+</body>
+</html>
