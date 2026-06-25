@@ -805,17 +805,30 @@ EDGES.forEach(([aId, bId]) => {
   group.add(new THREE.Line(geo, mat));
 });
 
+// ── accessibility: respect prefers-reduced-motion ───────────────────────
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 // ── animate ──────────────────────────────────────────────────────────────
 let tick = 0;
-// Gentle mouse parallax
-let mxN = 0, myN = 0;
-window.addEventListener('mousemove', e => {
-  mxN = (e.clientX / innerWidth  - 0.5) * 2;
-  myN = (e.clientY / innerHeight - 0.5) * 2;
+let bgPaused = false;
+
+// Pause when tab is hidden (Page Visibility API)
+document.addEventListener('visibilitychange', () => {
+  bgPaused = document.hidden;
 });
+
+// Gentle mouse parallax (skip when reduced motion)
+let mxN = 0, myN = 0;
+if (!reducedMotion) {
+  window.addEventListener('mousemove', e => {
+    mxN = (e.clientX / innerWidth  - 0.5) * 2;
+    myN = (e.clientY / innerHeight - 0.5) * 2;
+  });
+}
 
 (function animate() {
   requestAnimationFrame(animate);
+  if (bgPaused || reducedMotion) return;  // freeze when hidden or motion-sensitive
   tick += 0.008;
 
   // Slow rotation + slight sway
@@ -846,6 +859,16 @@ window.addEventListener('mousemove', e => {
      ════════════════════════════════════════════════════════════════ -->
 <script>
 (function () {
+  // ── single source of truth for all demo numbers ──────────────────────
+  const CFG = {
+    naive_tokens:    1066,
+    lens_tokens:     74,
+    savings_pct:     93,
+    reactions:       4,
+    elapsed_s:       "0.05",
+    lines_generated: 80,
+  };
+
   // Illustrative CIDs (match bafyrei prefix from real runs)
   const CIDS = [
     "bafyreickxt2bp7eua…",
@@ -868,15 +891,15 @@ window.addEventListener('mousemove', e => {
     { delay: 3200, cls: "tl-ok",   text: "    › 1 record ← 'CH3COOH' [CO₂ → acetic acid]" },
     { delay: 3460, cls: "tl-note", text: "    › Total unique: 4 records" },
     { delay: 3860, cls: "tl-step", text: "[3] Token distillation — Lens vs. naïve full-JSON", savings: true },
-    { delay: 4260, cls: "tl-note", text: "    › Naïve (full JSON) : 1 066 tokens  ████████████████████" },
-    { delay: 4660, cls: "tl-tok",  text: "    › Lens distilled    :    74 tokens  █" },
-    { delay: 5060, cls: "tl-ok",   text: "    › Saved             : 93%  (992 tokens → $0.003/req at GPT-4)" },
-    { delay: 5460, cls: "tl-step", text: "[4] Synthesising typed Python module (80 lines / 3 369 chars)" },
+    { delay: 4260, cls: "tl-note", text: `    › Naïve (full JSON) : ${CFG.naive_tokens} tokens  ████████████████████` },
+    { delay: 4660, cls: "tl-tok",  text: `    › Lens distilled    :    ${CFG.lens_tokens} tokens  █` },
+    { delay: 5060, cls: "tl-ok",   text: `    › Saved             : ${CFG.savings_pct}%  (${CFG.naive_tokens - CFG.lens_tokens} tokens → $0.003/req at GPT-4)` },
+    { delay: 5460, cls: "tl-step", text: `[4] Synthesising typed Python module (${CFG.lines_generated} lines / 3 369 chars)` },
     { delay: 5760, cls: "tl-note", text: "    › def reaction_n2___3_h2____2_nh3() → Reaction: …" },
     { delay: 5960, cls: "tl-note", text: "    › def reaction_2_co2___4_h2____ch3cooh() → …" },
     { delay: 6360, cls: "tl-step", text: "[5] Pushing generated module to GitHub via Contents API" },
     { delay: 6660, cls: "tl-push", text: "    › Pushed → github.com/Knitweb/pulse/generated/chemistry_reactions.py" },
-    { delay: 7060, cls: "tl-done", text: "  ✓ Done  in 0.05 s  |  reactions=4  saved=93%  lines=80" },
+    { delay: 7060, cls: "tl-done", text: `  ✓ Done  in ${CFG.elapsed_s} s  |  reactions=${CFG.reactions}  saved=${CFG.savings_pct}%  lines=${CFG.lines_generated}` },
   ];
 
   function addLine(cls, text) {
@@ -889,17 +912,24 @@ window.addEventListener('mousemove', e => {
     body.scrollTop = body.scrollHeight;
   }
 
+  // accessibility: skip animation when user prefers reduced motion
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   function animateSavings() {
-    document.getElementById('tok-naive').textContent = '1 066';
-    document.getElementById('tok-lens').textContent  = '74';
-    let pct = 0;
+    document.getElementById('tok-naive').textContent = CFG.naive_tokens.toLocaleString('nl-NL');
+    document.getElementById('tok-lens').textContent  = String(CFG.lens_tokens);
     const bar   = document.getElementById('savings-bar');
     const label = document.getElementById('savings-pct');
-    bar.style.width = '93%';
+    bar.style.width = CFG.savings_pct + '%';
+    if (prefersReducedMotion) {
+      label.textContent = CFG.savings_pct + '%';
+      return;
+    }
+    let pct = 0;
     const iv = setInterval(() => {
-      pct = Math.min(93, pct + 3);
+      pct = Math.min(CFG.savings_pct, pct + 3);
       label.textContent = pct + '%';
-      if (pct >= 93) clearInterval(iv);
+      if (pct >= CFG.savings_pct) clearInterval(iv);
     }, 38);
   }
 
@@ -911,7 +941,14 @@ window.addEventListener('mousemove', e => {
     if (cidEl) cidEl.textContent = CIDS[idx];
   }
 
+  // Track pending timeouts so repeated Replay clicks cancel the prior sequence.
+  let _pendingTimers = [];
+
   function runDemo() {
+    // Cancel any in-flight animation before starting a fresh one.
+    _pendingTimers.forEach(id => clearTimeout(id));
+    _pendingTimers = [];
+
     const body   = document.getElementById('term-body');
     const cursor = document.getElementById('cursor');
     body.innerHTML = '';
@@ -931,12 +968,23 @@ window.addEventListener('mousemove', e => {
     document.querySelectorAll('.rx-list li').forEach(li => li.classList.remove('visible'));
     document.querySelectorAll('[id^="cid-"]').forEach(el => el.textContent = 'pending…');
 
+    if (prefersReducedMotion) {
+      // Show final state immediately — no timed sequence.
+      STEPS.forEach(s => {
+        addLine(s.cls, s.text);
+        if (s.savings) animateSavings();
+        if (s.rx !== undefined) showReaction(s.rx);
+      });
+      return;
+    }
+
     STEPS.forEach(s => {
-      setTimeout(() => {
+      const id = setTimeout(() => {
         addLine(s.cls, s.text);
         if (s.savings) animateSavings();
         if (s.rx !== undefined) showReaction(s.rx);
       }, s.delay);
+      _pendingTimers.push(id);
     });
   }
 
@@ -948,7 +996,8 @@ window.addEventListener('mousemove', e => {
     const obs = new IntersectionObserver(entries => {
       if (entries[0].isIntersecting && !started) {
         started = true;
-        setTimeout(runDemo, 300);
+        const id = setTimeout(runDemo, 300);
+        _pendingTimers.push(id);
       }
     }, { threshold: 0.25 });
     obs.observe(document.getElementById('demo'));

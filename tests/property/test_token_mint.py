@@ -114,6 +114,31 @@ def test_bool_escrow_is_rejected():
 
 
 @pytest.mark.property
+@pytest.mark.parametrize("bad_ts", [1.0, True, -1])
+def test_bad_timestamp_is_rejected_before_any_settlement(bad_ts):
+    # timestamp flows into pulse.epoch_at and the canonical Issuance CID, so a float
+    # would breach the integer-only-near-hash invariant. It must fail fast — BEFORE
+    # the escrow transfer — so a bad value can't leave partial state (escrow moved,
+    # no issuance, digest unmarked). A float/bool is a TypeError; a negative a ValueError.
+    job, orig_priv = _job()
+    proof = execute(job, orig_priv)
+    consumer = AccountNode(genesis_balances={"PLS": 100})
+    worker = AccountNode()
+    t = Treasury()
+
+    with pytest.raises((TypeError, ValueError)):
+        t.reward_verified_work(consumer, worker, 10, job, proof, timestamp=bad_ts)
+
+    # No partial state: escrow untouched, nothing minted/recorded.
+    assert consumer.balance(NATIVE) == 100 and worker.balance(NATIVE) == 0
+    assert t.total_minted == 0 and t.issuances == []
+
+    # The verified work is NOT burned — a later call with a valid timestamp still pays.
+    iss = t.reward_verified_work(consumer, worker, 10, job, proof, timestamp=1)
+    assert iss is not None and iss.amount > 0
+
+
+@pytest.mark.property
 def test_mint_never_exceeds_escrow_demand():
     # Even with a >100% rate, the reward is clamped to the escrow (demand bound).
     job, orig_priv = _job()
