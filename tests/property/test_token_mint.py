@@ -10,6 +10,7 @@ import pytest
 from knitweb.core import crypto
 from knitweb.ledger.braid import BraidError
 from knitweb.ledger.node import AccountNode
+from knitweb.p2p.standing import BASE_WEIGHT_BPS, PeerStanding
 from knitweb.pouw.job import SynapticCompileJob, WorkProof, execute
 from knitweb.token.mint import NATIVE, EmissionPolicy, Treasury
 
@@ -225,3 +226,89 @@ def test_zero_escrow_verified_work_settles_and_mints_nothing():
     assert iss is not None and iss.amount == 0
     assert consumer.balance(NATIVE) == 100 and worker.balance(NATIVE) == 0
     assert t.total_minted == 0
+
+
+# ── Standing bonus ────────────────────────────────────────────────────────────
+
+@pytest.mark.property
+def test_standing_bonus_boosts_reward_for_streaked_worker():
+    # A fully-saturated worker earns the maximum standing bonus on top of the base reward.
+    job, orig_priv = _job()
+    proof = execute(job, orig_priv)
+    consumer = AccountNode(genesis_balances={"PLS": 1000})
+    worker = AccountNode()
+    t = Treasury(EmissionPolicy(rate_num=1, rate_den=2))  # base reward = escrow / 2
+
+    s = PeerStanding(max_streak=10, max_bonus_bps=2500)
+    for _ in range(10):           # saturate streak → +25% bonus weight
+        s.credit(worker.address)
+
+    iss = t.reward_verified_work(consumer, worker, escrow=1000, job=job, proof=proof,
+                                 timestamp=1, standing=s)
+
+    assert iss is not None
+    base = 500                    # 1000 * 1/2
+    expected = s.apply_weight(worker.address, base)  # 500 * 12500 // 10000 = 625
+    assert iss.amount == expected
+    assert iss.amount > base      # loyalty bonus was applied
+
+
+@pytest.mark.property
+def test_standing_none_leaves_reward_unchanged():
+    # standing=None must produce the same amount as the pre-standing path.
+    job, orig_priv = _job()
+    proof = execute(job, orig_priv)
+    consumer = AccountNode(genesis_balances={"PLS": 100})
+    worker = AccountNode()
+    t = Treasury(EmissionPolicy(rate_num=1, rate_den=2))
+
+    iss = t.reward_verified_work(consumer, worker, 20, job, proof, timestamp=1)
+    assert iss is not None and iss.amount == 10   # 20 * 1/2, no bonus
+
+
+@pytest.mark.property
+def test_standing_bonus_at_par_is_identity():
+    # A worker with no streak (par) gets exactly the base reward — apply_weight(0) = 1.0x.
+    job, orig_priv = _job()
+    proof = execute(job, orig_priv)
+    consumer = AccountNode(genesis_balances={"PLS": 100})
+    worker = AccountNode()
+    t = Treasury(EmissionPolicy(rate_num=1, rate_den=2))
+    s = PeerStanding()            # fresh standing, streak=0
+
+    iss = t.reward_verified_work(consumer, worker, 20, job, proof, timestamp=1, standing=s)
+    assert iss is not None and iss.amount == 10   # exactly base, no bonus
+
+
+@pytest.mark.property
+def test_standing_bonus_is_reclamped_to_supply_cap():
+    # Even with a maximum standing bonus, total_minted must never exceed max_supply.
+    job, orig_priv = _job()
+    proof = execute(job, orig_priv)
+    consumer = AccountNode(genesis_balances={"PLS": 100})
+    worker = AccountNode()
+    # max_supply=9 with rate=1/2 and escrow=10 → base=5; +25% bonus → 6, but cap=9
+    # Already minted 5 in a prior round, so remaining = 4. Bonus of 6 → clamped to 4.
+    t = Treasury(EmissionPolicy(rate_num=1, rate_den=2, max_supply=9))
+    s = PeerStanding(max_streak=1, max_bonus_bps=2500)
+    s.credit(worker.address)     # fully saturated at 1 epoch
+
+    # First settlement: base=5, bonus→6, cap remaining=9 → 6 minted fine.
+    priv2, pub2 = crypto.generate_keypair()
+    asset2 = {"origintrail_id": 99, "originator": "X",
+               "linked_sources": [{"type": "IFRS_File", "url": "https://ifrs.org"}]}
+    job2 = SynapticCompileJob(asset=asset2, originator_pub=pub2)
+    proof2 = execute(job2, priv2)
+    c2 = AccountNode(genesis_balances={"PLS": 100})
+    i1 = t.reward_verified_work(c2, worker, 10, job2, proof2, timestamp=1, standing=s)
+    assert i1 is not None and i1.amount == 6 and t.total_minted == 6
+
+    # Second settlement: base=5, bonus→6, but only 3 remain (9-6). Clamped to 3.
+    priv3, pub3 = crypto.generate_keypair()
+    asset3 = {"origintrail_id": 98, "originator": "Y",
+               "linked_sources": [{"type": "IFRS_File", "url": "https://ifrs.org"}]}
+    job3 = SynapticCompileJob(asset=asset3, originator_pub=pub3)
+    proof3 = execute(job3, priv3)
+    c3 = AccountNode(genesis_balances={"PLS": 100})
+    i2 = t.reward_verified_work(c3, worker, 10, job3, proof3, timestamp=2, standing=s)
+    assert i2 is not None and i2.amount == 3 and t.total_minted == 9

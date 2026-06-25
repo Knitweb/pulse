@@ -30,6 +30,7 @@ from ..core.pulse import Pulse
 from ..ledger import blob
 from ..ledger.fiber import Fiber
 from ..ledger.node import AccountNode
+from ..p2p.standing import BASE_WEIGHT_BPS, PeerStanding
 from ..pouw.job import SynapticCompileJob, WorkProof, verify
 
 __all__ = ["NATIVE", "EmissionPolicy", "Issuance", "Treasury"]
@@ -162,6 +163,8 @@ class Treasury:
         job: SynapticCompileJob,
         proof: WorkProof,
         timestamp: int,
+        *,
+        standing: PeerStanding | None = None,
     ) -> Issuance | None:
         """Run the full PoUW economic loop. Returns the Issuance, or None on fraud.
 
@@ -174,6 +177,15 @@ class Treasury:
         3. **Settle** the consumer's ``escrow`` to the worker (a normal Knit
            transfer — conservation-preserving, no issuance).
         4. **Mint** the bounded reward to the worker as a coinbase, record it.
+
+        When ``standing`` is supplied, the policy's base reward is scaled by the
+        worker's :meth:`~knitweb.p2p.standing.PeerStanding.apply_weight` before
+        the coinbase is minted. A worker at par (no streak) receives the base
+        reward unchanged. A fully-saturated streak earns up to
+        ``+max_bonus_bps / BASE_WEIGHT_BPS`` extra (default +25%). The bonus is
+        re-clamped to the remaining supply cap and epoch cap after boosting so
+        total issuance is always bounded. ``standing=None`` (default) leaves the
+        reward unchanged — existing callers need no modification.
         """
         if not isinstance(escrow, int) or isinstance(escrow, bool):
             raise TypeError("escrow must be int")
@@ -220,6 +232,17 @@ class Treasury:
             if epoch_cap is not None:
                 epoch_remaining = epoch_cap - self._epoch_minted.get(epoch, 0)
         amount = self.policy.reward(escrow, self.total_minted, epoch_remaining)
+
+        # Standing bonus: sustained streak earns a loyalty premium above the base
+        # policy reward. Re-clamp to remaining supply/epoch budget after boosting so
+        # total issuance is always bounded — a standing bonus can never break the cap.
+        if standing is not None and amount > 0:
+            amount = standing.apply_weight(worker.address, amount)
+            if self.policy.max_supply is not None:
+                amount = min(amount, max(0, self.policy.max_supply - self.total_minted))
+            if epoch_remaining is not None:
+                amount = min(amount, max(0, epoch_remaining))
+
         issuance = Issuance(
             worker=worker.address,
             amount=amount,
