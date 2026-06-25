@@ -34,6 +34,7 @@ from fractions import Fraction
 from typing import List
 
 from ..ledger.node import AccountNode
+from ..p2p.standing import PeerStanding
 from ..token.mint import NATIVE, EmissionPolicy, Issuance, Treasury
 from . import challenge, verify
 from .collateral import Margin, required_collateral
@@ -198,6 +199,7 @@ class Marketplace:
         max_miss: Fraction = Fraction(1, 100),
         margin: Margin | None = None,
         max_concurrent: int = 1,
+        standing: PeerStanding | None = None,
     ) -> None:
         self.scheduler = GpuScheduler(max_concurrent=max_concurrent)
         self.ledger = DisputeWindowLedger(
@@ -213,6 +215,10 @@ class Marketplace:
         self.release_delay = release_delay
         self._ads: dict[str, SpiderAd] = {}
         self._eligible_verifiers: List[str] = []
+        # Optional standing ledger: drives credit/fault on the spider's streak so
+        # marketplace jobs accumulate stability standing alongside quorum-settled jobs.
+        # None (default) skips standing side-effects — backward-compatible.
+        self.standing = standing
 
     # ADVERTISE
     def advertise(self, ad: SpiderAd, verifier_pool: List[str]) -> None:
@@ -295,6 +301,8 @@ class Marketplace:
         )
         if not confirmed:
             # WRONG result rejected: stake slashed, escrow refunded, no settle, no mint.
+            if self.standing is not None:
+                self.standing.fault(spider.address)
             return result
 
         # REWARD: the window has cleared (release_delay > dispute_window), so the escrow
@@ -312,6 +320,9 @@ class Marketplace:
         )
         result.issuance = issuance
         result.reward = issuance.amount if issuance is not None else 0
+
+        if self.standing is not None and result.reward >= 0:
+            self.standing.credit(spider.address)
         return result
 
     def total_supply(self, *accounts: AccountNode) -> int:
