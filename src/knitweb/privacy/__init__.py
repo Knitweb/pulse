@@ -5,8 +5,9 @@ Modules
 ``fhe``       real FHE seam; optional CKKS backend behind ``knitweb[fhe]``.
 ``additive``  Paillier — *partially* homomorphic (add-only), never FHE.
 ``fhe_cost``  honest wall-time / node-work / PLS estimator for FHE workloads.
+``zerotrust`` "never trust, always verify" authorize policy over existing gates.
 
-Future (separate PRs): ``zerotrust`` (authorize policy), ``enclave`` (TEE seam).
+Future (separate PRs): ``enclave`` (TEE placement seam).
 """
 
 from .additive import (
@@ -32,6 +33,13 @@ from .fhe_cost import (
     op_latencies_ms,
     serial_time_ms,
 )
+from .zerotrust import (
+    ACTION_MIN_TIER,
+    ACTIONS_REQUIRING_PROVEN_ID,
+    Action,
+    Decision,
+    authorize,
+)
 
 __all__ = [
     # FHE seam (real FHE via optional backend)
@@ -54,4 +62,10 @@ __all__ = [
     "estimate",
     "op_latencies_ms",
     "serial_time_ms",
+    # zero-trust authorization
+    "Action",
+    "Decision",
+    "authorize",
+    "ACTION_MIN_TIER",
+    "ACTIONS_REQUIRING_PROVEN_ID",
 ]
