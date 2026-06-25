@@ -64,14 +64,7 @@ def test_repeated_confirmed_quorums_accumulate_streak():
     job, priv = _make_job()
     s = PeerStanding()
 
-    for ts in range(1, 6):
-        consumer, worker_initial = _accounts()
-        # reuse the same worker address by re-creating from same keypair is not
-        # straightforward; instead create one worker and reuse with a fresh consumer.
-        break
-
     # One worker, five independent consumers (fresh escrow each round).
-    priv_w, pub_w = crypto.generate_keypair()
     worker = AccountNode()
 
     for ts in range(1, 6):

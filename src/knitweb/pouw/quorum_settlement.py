@@ -92,6 +92,10 @@ def settle_on_quorum(
         threshold=threshold,
     )
     if not result.releases:
+        # result.outcome is already final here (DECLARED_FAULT / DETECTED_FAULT /
+        # INCONCLUSIVE) — tally() set it before returning, so we can act on it
+        # directly. The _inconclusive_from() helper further below is only reached
+        # via the confirmed branch where a proof later fails, overriding outcome.
         if standing is not None and result.outcome in (
             Outcome.DECLARED_FAULT, Outcome.DETECTED_FAULT
         ):
