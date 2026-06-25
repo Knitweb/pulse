@@ -516,6 +516,7 @@
             <span class="dot dot-y"></span>
             <span class="dot dot-g"></span>
             <span class="term-title">chemistry_lens_agent_demo.py</span>
+            <span id="live-badge" style="margin-left:8px;font-size:10px;padding:2px 7px;border-radius:9px;border:1px solid;display:none"></span>
           </div>
           <div class="term-body" id="term-body">
             <span class="tl tl-hdr">  ╔════════════════════════════════════════╗</span>
@@ -988,7 +989,129 @@ if (!reducedMotion) {
     });
   }
 
-  document.getElementById('btn-replay').addEventListener('click', runDemo);
+  // ── Live SSE mode — connects to chemistry_agent_server running locally ──
+  // Run: PYTHONPATH=src uvicorn examples.chemistry_agent_server:app --port 8765
+  const SSE_URL = 'http://localhost:8765/stream';
+
+  function setBadge(live) {
+    const b = document.getElementById('live-badge');
+    b.style.display = 'inline';
+    if (live) {
+      b.textContent  = '● Live';
+      b.style.color  = 'var(--c)';
+      b.style.borderColor = 'var(--c)';
+    } else {
+      b.textContent  = '○ Simulated';
+      b.style.color  = 'var(--mut)';
+      b.style.borderColor = 'var(--line)';
+    }
+  }
+
+  function runLive() {
+    // Reset terminal and stats
+    const body   = document.getElementById('term-body');
+    const cursor = document.getElementById('cursor');
+    body.innerHTML = '';
+    body.appendChild(cursor);
+    ['  ╔════════════════════════════════════════╗',
+     '  ║  Knitweb · Chemistry Lens Agent        ║',
+     '  ╚════════════════════════════════════════╝', ' '].forEach(t => addLine('tl-hdr', t));
+    document.getElementById('savings-pct').textContent = '0%';
+    document.getElementById('savings-bar').style.width = '0%';
+    document.getElementById('tok-naive').textContent = '—';
+    document.getElementById('tok-lens').textContent  = '—';
+    document.querySelectorAll('.rx-list li').forEach(li => li.classList.remove('visible'));
+    document.querySelectorAll('[id^="cid-"]').forEach(el => el.textContent = 'pending…');
+
+    setBadge(true);
+    const src = new EventSource(SSE_URL);
+    let rxCount = 0;
+
+    src.addEventListener('step', e => {
+      const d = JSON.parse(e.data);
+      addLine('tl-step', `[${d.n}] ${d.label}`);
+    });
+    src.addEventListener('reaction_seeded', e => {
+      const d = JSON.parse(e.data);
+      addLine('tl-ok', `    ✓ ${d.label}  [${d.cid}]`);
+    });
+    src.addEventListener('reaction_retrieved', e => {
+      const d = JSON.parse(e.data);
+      addLine('tl-tok', `    ‹ ${d.equation}`);
+      const li = document.querySelector(`[data-idx="${rxCount}"]`);
+      if (li) {
+        li.classList.add('visible');
+        const cidEl = document.getElementById(`cid-${rxCount}`);
+        if (cidEl) cidEl.textContent = d.cid;
+      }
+      rxCount++;
+    });
+    src.addEventListener('savings', e => {
+      const d = JSON.parse(e.data);
+      document.getElementById('tok-naive').textContent = d.naive.toLocaleString('nl-NL');
+      document.getElementById('tok-lens').textContent  = String(d.lens);
+      document.getElementById('savings-bar').style.width = d.pct_saved + '%';
+      let pct = 0;
+      const lbl = document.getElementById('savings-pct');
+      const iv = setInterval(() => {
+        pct = Math.min(d.pct_saved, pct + 2);
+        lbl.textContent = Math.round(pct) + '%';
+        if (pct >= d.pct_saved) clearInterval(iv);
+      }, 30);
+      addLine('tl-done', `    › Saved ${d.pct_saved}%  (${d.naive} → ${d.lens} tokens)`);
+    });
+    src.addEventListener('code_generated', e => {
+      const d = JSON.parse(e.data);
+      addLine('tl-ok', `    › ${d.lines} lines / ${d.chars} chars generated`);
+    });
+    src.addEventListener('github_push', e => {
+      addLine('tl-push', `    › ${JSON.parse(e.data).result}`);
+    });
+    src.addEventListener('info', e => {
+      addLine('tl-note', `    › ${JSON.parse(e.data).text}`);
+    });
+    src.addEventListener('done', e => {
+      const d = JSON.parse(e.data);
+      addLine('tl-done', `  ✓ Done in ${d.elapsed_s}s · reactions=${d.reactions_seeded} saved=${d.pct_saved}%`);
+      src.close();
+    });
+    src.onerror = () => { addLine('tl-note', '  (stream ended)'); src.close(); };
+  }
+
+  // ── dispatch: try live, fall back to simulation after 1.5 s ─────────────
+  let _liveChecked = false;
+
+  function run() {
+    if (_liveChecked) { runDemo(); return; }  // already know server is absent
+    _pendingTimers.forEach(id => clearTimeout(id));
+    _pendingTimers = [];
+
+    // Probe the SSE endpoint with a short-lived EventSource.
+    // If it opens within 1.5 s → go live; otherwise → simulation.
+    let probeTimer;
+    const probe = new EventSource(SSE_URL);
+    probeTimer = setTimeout(() => {
+      probe.close();
+      _liveChecked = true;
+      setBadge(false);
+      runDemo();
+    }, 1500);
+
+    probe.onopen = () => {
+      clearTimeout(probeTimer);
+      probe.close();
+      runLive();
+    };
+    probe.onerror = () => {
+      clearTimeout(probeTimer);
+      probe.close();
+      _liveChecked = true;
+      setBadge(false);
+      runDemo();
+    };
+  }
+
+  document.getElementById('btn-replay').addEventListener('click', run);
 
   // Auto-start when 25% visible
   if ('IntersectionObserver' in window) {
@@ -996,13 +1119,13 @@ if (!reducedMotion) {
     const obs = new IntersectionObserver(entries => {
       if (entries[0].isIntersecting && !started) {
         started = true;
-        const id = setTimeout(runDemo, 300);
+        const id = setTimeout(run, 300);
         _pendingTimers.push(id);
       }
     }, { threshold: 0.25 });
     obs.observe(document.getElementById('demo'));
   } else {
-    runDemo();
+    run();
   }
 })();
 </script>
