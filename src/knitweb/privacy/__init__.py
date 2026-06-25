@@ -6,14 +6,23 @@ Modules
 ``additive``  Paillier — *partially* homomorphic (add-only), never FHE.
 ``fhe_cost``  honest wall-time / node-work / PLS estimator for FHE workloads.
 ``zerotrust`` "never trust, always verify" authorize policy over existing gates.
-
-Future (separate PRs): ``enclave`` (TEE placement seam).
+``enclave``   Central Computation Enclave placement policy + TEE attestation seam.
 """
 
 from .additive import (
     PaillierPrivateKey,
     PaillierPublicKey,
     generate_keypair,
+)
+from .enclave import (
+    AttestationVerifier,
+    EnclaveError,
+    EnclavePolicy,
+    NodeAttestation,
+    NodeProfile,
+    TrustedAllowlistVerifier,
+    eligible_nodes,
+    is_eligible,
 )
 from .fhe import (
     SCHEME_CKKS,
@@ -68,4 +77,13 @@ __all__ = [
     "authorize",
     "ACTION_MIN_TIER",
     "ACTIONS_REQUIRING_PROVEN_ID",
+    # enclave placement (TEE attestation seam)
+    "AttestationVerifier",
+    "EnclaveError",
+    "EnclavePolicy",
+    "NodeAttestation",
+    "NodeProfile",
+    "TrustedAllowlistVerifier",
+    "eligible_nodes",
+    "is_eligible",
 ]
