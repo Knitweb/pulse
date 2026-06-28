@@ -94,10 +94,11 @@ def bond_edge_record(
 #
 # Literal strings pinned from the canonical encoder output.  Do NOT compute
 # these at import time — if the encoder changes, a diverged computed value
-# would silently pass tests while prod records break.  To re-pin after an
-# intentional schema migration: run ``python -c "from knitweb.chemistry.schema
-# import chemistry_node_record, bond_edge_record; from knitweb.core.canonical
-# import cid; ..."`` and paste the output below.
+# would silently pass tests while prod records break.
+# To re-pin after a schema migration, run:
+#   PYTHONPATH=src python3 tools/pin_golden_cids.py
+# (or compute directly: from knitweb.chemistry.schema import *; from
+#  knitweb.core.canonical import cid; print(cid(chemistry_node_record(...))))
 # ---------------------------------------------------------------------------
 
 GOLDEN_CIDS: dict[str, str] = {
