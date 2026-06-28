@@ -142,7 +142,7 @@ def weight_root(assertions: Iterable[WeightAssertion]) -> str:
     full assertion corpus offline.
     """
     recs = sorted(
-        canonical.encode(a.to_record()) for a in assertions
+        {canonical.encode(a.to_record()) for a in assertions}
     )
     leaves = [crypto.sha256(r) for r in recs]
     return crypto.merkle_root(leaves).hex()
