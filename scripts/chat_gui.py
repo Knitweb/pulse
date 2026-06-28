@@ -98,15 +98,22 @@ class KnitwebChatLens:
             }
         # Real Claude answer. Non-streaming with a bounded max_tokens stays well under
         # the SDK's HTTP-timeout guard; adaptive thinking is the recommended default.
-        resp = client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            thinking={"type": "adaptive"},
-            system=self.SYSTEM,
-            messages=[{"role": "user", "content": str(query)}],
-        )
-        text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
-        return {"answer": text.strip() or "(empty answer)", "model": resp.model, "grounded": grounded}
+        try:
+            resp = client.messages.create(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                thinking={"type": "adaptive"},
+                system=self.SYSTEM,
+                messages=[{"role": "user", "content": str(query)}],
+            )
+            text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+            return {"answer": text.strip() or "(empty answer)", "model": resp.model, "grounded": grounded}
+        except Exception:
+            return {
+                "answer": self._fallback(query, grounded),
+                "model": "knitweb-fallback",
+                "grounded": grounded,
+            }
 
     @staticmethod
     def _fallback(query: str, grounded: int) -> str:
@@ -484,7 +491,10 @@ def serve_chat(service: ChatService, *, port: int = 8090, host: str = "127.0.0.1
             if p.path == "/api/stats":
                 return self._send(200, {**service.stats(), "ask_cost": service.ask_cost})
             if p.path == "/api/feed":
-                limit = int((q.get("limit") or ["50"])[0])
+                try:
+                    limit = int((q.get("limit") or ["50"])[0])
+                except (ValueError, TypeError):
+                    limit = 50
                 return self._send(200, service.feed(limit))
             return self._send(404, {"error": "not found"})
 
