@@ -10,8 +10,6 @@ Schema version: 1.  Bump ONLY with a migration note.
 
 from __future__ import annotations
 
-from knitweb.core.canonical import cid as _cid
-
 __all__ = [
     "SCHEMA_VERSION",
     "chemistry_node_record",
@@ -94,19 +92,16 @@ def bond_edge_record(
 # ---------------------------------------------------------------------------
 # Golden CID vectors (schema_version=1)
 #
-# These are computed ONCE from the canonical encoder and then PINNED here.
-# Any encoder or field change that alters these values indicates a breaking
-# schema migration and must be reviewed before merging.
+# Literal strings pinned from the canonical encoder output.  Do NOT compute
+# these at import time — if the encoder changes, a diverged computed value
+# would silently pass tests while prod records break.  To re-pin after an
+# intentional schema migration: run ``python -c "from knitweb.chemistry.schema
+# import chemistry_node_record, bond_edge_record; from knitweb.core.canonical
+# import cid; ..."`` and paste the output below.
 # ---------------------------------------------------------------------------
 
-_WATER_NODE = chemistry_node_record(formula="H2O", name_en="Water", name_nl="Water")
-_SALT_NODE = chemistry_node_record(formula="NaCl", name_en="Table salt", name_nl="Keukenzout")
-_H2O_CO2_BOND = bond_edge_record(
-    from_formula="H2O", to_formula="CO2", relation="reacts-with", weight=1
-)
-
 GOLDEN_CIDS: dict[str, str] = {
-    "chemistry-node:H2O": _cid(_WATER_NODE),
-    "chemistry-node:NaCl": _cid(_SALT_NODE),
-    "bond-edge:H2O->CO2:reacts-with": _cid(_H2O_CO2_BOND),
+    "chemistry-node:H2O": "bafyreiakivq426m2yu2twpqhhipbjlr7lb7pacjlhh5xdzn2bgfanorcya",
+    "chemistry-node:NaCl": "bafyreic6mma4j4ahs5a4xstxnojvsdovhpd4ntobbigxjmw52b3exojzce",
+    "bond-edge:H2O->CO2:reacts-with": "bafyreie4fbuvd6racvnnlmzntfaz7ajmj5qv3wzuekokmbffdv6s7tfa64",
 }
