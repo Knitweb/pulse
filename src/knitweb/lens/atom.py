@@ -121,11 +121,9 @@ class ExpressionAtom(Atom):
     children: tuple[Atom, ...]
 
     def __init__(self, *children: Atom) -> None:
-        object.__setattr__(self, "children", tuple(children))
-
-    def __post_init__(self) -> None:
-        if not all(isinstance(c, Atom) for c in self.children):
+        if not all(isinstance(c, Atom) for c in children):
             raise TypeError("ExpressionAtom children must be Atoms")
+        object.__setattr__(self, "children", tuple(children))
 
     def __str__(self) -> str:
         inner = " ".join(str(c) for c in self.children)

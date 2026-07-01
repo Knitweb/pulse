@@ -25,7 +25,7 @@ def interpret(atom: Atom, binding: Binding | None = None) -> str:
         return atom.name
     if isinstance(atom, VariableAtom):
         bound = binding.get(atom.name) if binding else None
-        return interpret(bound) if bound else str(atom)
+        return interpret(bound, binding) if bound else str(atom)
     if isinstance(atom, GroundedAtom):
         return atom.render
     if isinstance(atom, ExpressionAtom):
