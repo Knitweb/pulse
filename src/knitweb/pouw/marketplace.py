@@ -34,6 +34,7 @@ from fractions import Fraction
 from typing import List
 
 from ..ledger.node import AccountNode
+from ..p2p.standing import PeerStanding
 from ..token.mint import NATIVE, EmissionPolicy, Issuance, Treasury
 from . import challenge, verify
 from .collateral import Margin, required_collateral
@@ -201,6 +202,7 @@ class Marketplace:
         margin: Margin | None = None,
         max_concurrent: int = 1,
         verifier_reward: VerifierRewardLedger | None = None,
+        standing: PeerStanding | None = None,
     ) -> None:
         self.scheduler = GpuScheduler(max_concurrent=max_concurrent)
         self.ledger = DisputeWindowLedger(
@@ -219,6 +221,10 @@ class Marketplace:
         # Optional verifier kickback ledger: tracks PLS-wei earned by committee members
         # for honest re-execution. None = no kickback (backward-compatible default).
         self.verifier_reward = verifier_reward
+        # Optional standing ledger: pass a long-lived shared PeerStanding instance
+        # so streaks accumulate across marketplace rounds instead of per instance.
+        # Confirmed work credits the spider; verifier-rejected work resets it.
+        self.standing = standing
 
     # ADVERTISE
     def advertise(self, ad: SpiderAd, verifier_pool: List[str]) -> None:
@@ -301,6 +307,8 @@ class Marketplace:
         )
         if not confirmed:
             # WRONG result rejected: stake slashed, escrow refunded, no settle, no mint.
+            if self.standing is not None:
+                self.standing.fault(spider.address)
             return result
 
         # REWARD: the window has cleared (release_delay > dispute_window), so the escrow
@@ -318,6 +326,9 @@ class Marketplace:
         )
         result.issuance = issuance
         result.reward = issuance.amount if issuance is not None else 0
+
+        if self.standing is not None:
+            self.standing.credit(spider.address)
 
         # Verifier kickback: committee members who confirmed honest work earn a share
         # of the spider's mint. Tracked in an accumulator ledger; actual PLS transfer
