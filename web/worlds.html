@@ -686,7 +686,7 @@
             <span id="weft-hud-coord">r=0 θ=0° φ=0° beat=0</span>
             <span>Drag to rotate · traverse 360° · inspect shells.</span>
             <span id="weft-ar-hint" style="display:none;margin-top:4px">
-              <button onclick="launchWeftAR()"
+              <button id="weft-ar-btn" onclick="launchWeftAR()"
                 style="padding:4px 10px;border:1px solid var(--accent-2);border-radius:4px;
                        background:transparent;color:var(--accent-2);font-size:11px;cursor:pointer">
                 ⬡ Enter AR
@@ -1174,11 +1174,22 @@ Get-Content -Wait C:\ProgramData\knitweb\wnw-spider.log</div>
   // ── gateway ───────────────────────────────────────────────────────────────
   function saveGateway(v) { localStorage.setItem(GW_KEY, v.trim()); }
 
+  function timeoutSignal(ms) {
+    return typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+      ? AbortSignal.timeout(ms)
+      : undefined;
+  }
+
+  function fetchOptionsWithTimeout(ms, options = {}) {
+    const signal = timeoutSignal(ms);
+    return signal ? { ...options, signal } : options;
+  }
+
   async function probe() {
     const url = (document.getElementById('gw-url').value || '').trim();
     if (!url) { setGwStatus(false, 'Enter a gateway URL first.'); return; }
     try {
-      const r = await fetch(url + '/api/worlds', { signal: AbortSignal.timeout(3000) });
+      const r = await fetch(url + '/api/worlds', fetchOptionsWithTimeout(3000));
       if (r.ok) {
         const data = await r.json();
         setGwStatus(true, `Connected — ${data.worlds?.length ?? 0} world(s) live`);
@@ -1205,7 +1216,7 @@ Get-Content -Wait C:\ProgramData\knitweb\wnw-spider.log</div>
 
   async function loadNodeStatus(url) {
     try {
-      const r = await fetch(url + '/status', { signal: AbortSignal.timeout(3000) });
+      const r = await fetch(url + '/status', fetchOptionsWithTimeout(3000));
       if (!r.ok) return;
       const s = await r.json();
       document.getElementById('ns-gpu').textContent =
@@ -1275,10 +1286,10 @@ Get-Content -Wait C:\ProgramData\knitweb\wnw-spider.log</div>
 
     if (gwUrl && gwLive) {
       try {
-        const r = await fetch(gwUrl + '/api/govern/settle', {
+        const r = await fetch(gwUrl + '/api/govern/settle', fetchOptionsWithTimeout(5000, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(order), signal: AbortSignal.timeout(5000)
-        });
+          body: JSON.stringify(order)
+        }));
         const data = await r.json();
         el.textContent = JSON.stringify(data, null, 2);
         el.className = 'settle-result ' + (r.ok ? 'ok' : 'err');
@@ -1321,7 +1332,7 @@ Get-Content -Wait C:\ProgramData\knitweb\wnw-spider.log</div>
 
   async function loadFrontier(gwUrl) {
     try {
-      const r = await fetch(gwUrl + '/api/quantum/frontier', { signal: AbortSignal.timeout(3000) });
+      const r = await fetch(gwUrl + '/api/quantum/frontier', fetchOptionsWithTimeout(3000));
       if (r.ok) { const d = await r.json(); renderFrontier(d.frontier || d); return; }
     } catch(_) {}
     renderFrontier(DEMO_FRONTIER);
@@ -2034,9 +2045,11 @@ fn norm(p: vec3f) -> vec3f {
     const session = await navigator.xr.requestSession('immersive-ar',
       { requiredFeatures: ['hit-test'], optionalFeatures: ['local-floor'] });
     session.addEventListener('end', () => {
-      document.getElementById('weft-ar-btn').textContent = 'Launch AR';
+      const btn = document.getElementById('weft-ar-btn');
+      if (btn) btn.textContent = 'Enter AR';
     });
-    document.getElementById('weft-ar-btn').textContent = 'AR active';
+    const btn = document.getElementById('weft-ar-btn');
+    if (btn) btn.textContent = 'AR active';
     const onXRFrame = (_t, _frame) => session.requestAnimationFrame(onXRFrame);
     session.requestAnimationFrame(onXRFrame);
   }

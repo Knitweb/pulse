@@ -105,7 +105,7 @@ addr = (r, θ, φ, beat)
 - `r` ∈ {0, 1, 2, 3, 4, 5}: shell index (integer)
 - `θ` ∈ [0°, 180°]: polar angle
 - `φ` ∈ [0°, 360°]: azimuthal angle
-- `beat` ∈ ℕ: Pulse clock (monotone, lamport-style)
+- `beat` ∈ ℕ: Pulse clock (monotone, Lamport-style)
 
 Nodes are placed using Fibonacci sphere packing to maximize minimum nearest-neighbor distance:
 
