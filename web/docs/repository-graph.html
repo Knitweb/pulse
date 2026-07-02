@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Repository Graph — Knitweb</title>
+  <meta name="description" content="The public roles of every Knitweb repository, linking rules, and the workflow loop.">
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .doc-wrap { max-width: 820px; margin: 0 auto; padding: clamp(32px,6vw,72px) clamp(18px,5vw,48px); }
+    .doc-back { font-size: 13px; color: var(--muted); text-decoration: none; }
+    .doc-back:hover { color: var(--ink); }
+    .doc-eyebrow { font-size: 11px; font-weight: 750; text-transform: uppercase;
+                   letter-spacing: .08em; color: var(--accent); margin: 28px 0 6px; }
+    h1 { font-size: clamp(28px,5vw,44px); font-weight: 800; line-height: 1.1; margin: 0 0 20px; }
+    h2 { font-size: 20px; font-weight: 750; margin: 40px 0 12px; padding-bottom: 8px;
+         border-bottom: 1px solid var(--line); }
+    p  { color: var(--muted); margin: 0 0 16px; font-size: 15px; line-height: 1.7; }
+    strong { color: var(--ink); }
+    code { font-family: ui-monospace, monospace; font-size: 13px;
+           background: var(--panel); padding: 2px 6px; border-radius: 3px;
+           color: var(--accent); border: 1px solid var(--line); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0 24px; }
+    th { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line);
+         color: var(--muted); font-size: 11px; text-transform: uppercase; font-weight: 700; }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--muted); }
+    td strong { color: var(--ink); }
+    tr:last-child td { border-bottom: none; }
+    ul, ol { margin: 0 0 16px; padding-left: 22px; }
+    li { color: var(--muted); font-size: 15px; margin-bottom: 6px; }
+    hr { border: none; border-top: 1px solid var(--line); margin: 36px 0; }
+    .rule-box { border: 1px solid var(--accent-2); border-radius: 8px; padding: 16px 20px;
+                 background: rgba(120,168,255,.05); margin: 20px 0; }
+    .rule-box p { color: var(--ink); margin: 0; font-size: 14px; line-height: 1.7; }
+    .flow-bar { display: flex; flex-wrap: wrap; gap: 0; margin: 16px 0; }
+    .flow-step { padding: 10px 14px; background: var(--panel); border: 1px solid var(--line);
+                  font-size: 12px; font-weight: 700; color: var(--muted); }
+    .flow-step:first-child { border-radius: 6px 0 0 6px; }
+    .flow-step:last-child { border-radius: 0 6px 6px 0; }
+    .flow-arrow { padding: 10px 8px; font-size: 12px; color: var(--line); background: var(--panel);
+                   border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="../worlds.html">k.nitweb.art</a>
+    <nav aria-label="Primary">
+      <a href="../worlds.html#backlog">Backlog</a>
+      <a href="worlds-narrow-web.html">WNW doc</a>
+      <a href="https://knitweb.github.io/gither/">Gither</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="doc-wrap">
+      <a class="doc-back" href="../worlds.html">← WNW dapp</a>
+      <p class="doc-eyebrow">Ecosystem map</p>
+      <h1>Repository Graph</h1>
+      <p>k.nitweb.art exists to make the Knitweb ecosystem legible. It promotes neighboring repositories without blurring their responsibilities. The art is the composition.</p>
+
+      <h2>Public Roles</h2>
+      <table>
+        <thead><tr><th>Repository</th><th>Public role</th><th>What it should prove</th></tr></thead>
+        <tbody>
+          <tr><td><code>Knitweb/pulse</code></td><td><strong>Protocol fabric</strong></td><td>Signed state, fabric proofs, gateway contracts, Lens/read-model boundaries</td></tr>
+          <tr><td><code>Knitweb/molgang</code></td><td><strong>Playable dapp</strong></td><td>Useful work, wallets, PLS/silk economy, peer updates, certificates</td></tr>
+          <tr><td><code>Knitweb/knitweb</code></td><td><strong>Public gateway</strong></td><td>Concepts, entry docs, hosted reference artifacts</td></tr>
+          <tr><td><code>Knitweb/k.nitweb.art</code></td><td><strong>Integration gallery</strong></td><td>Portable-client story, Nit reference, serverless dapp model</td></tr>
+          <tr><td><code>gither</code></td><td><strong>Workflow navigator</strong></td><td>Multi-repo graph, safe edit zones, context packs, PR impact planning</td></tr>
+          <tr><td><code>monitor</code></td><td><strong>Observability</strong></td><td>Node status, relay health, sessions, quorum, public evidence</td></tr>
+          <tr><td><code>lens</code></td><td><strong>Interpretation</strong></td><td>Provenance explanations, Lens/RLM contracts, anomaly summaries</td></tr>
+          <tr><td><code>news</code></td><td><strong>Public progress</strong></td><td>Release notes, sprint digests, woven public status</td></tr>
+        </tbody>
+      </table>
+
+      <hr>
+
+      <h2>Linking Rule</h2>
+      <div class="rule-box">
+        <p>Every public experiment should make clear which layer owns truth: Pulse owns protocol correctness. Molgang proves the protocol in an actual app loop. k.nitweb.art explains why portable clients matter. Hosted pages are distribution surfaces, not trust roots.</p>
+      </div>
+
+      <h2>Promotion Rule</h2>
+      <p>k.nitweb.art should link outward to the real source repositories instead of copying their implementation details. It can summarize, route, and frame, but it should not become a stale mirror.</p>
+
+      <hr>
+
+      <h2>Workflow Rule</h2>
+      <p>The public workflow is:</p>
+      <div class="flow-bar">
+        <span class="flow-step">issue</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">plan</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">worktree</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">tests</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">evidence</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">docs</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">PR</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">CI</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">merge</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">public update</span>
+      </div>
+      <p>k.nitweb.art should point people to the loop, while knitweb.github.io and the knitweb.dev route make the workflow visible from the public whitepaper and developer surfaces.</p>
+
+      <hr>
+
+      <h2>Nit Reference Placement</h2>
+      <p>Nit belongs in this graph as a reference language and client-architecture inspiration. It does not become a core dependency unless a future proof of concept demonstrates value beyond the existing web/Python/PHP shells.</p>
+    </div>
+  </main>
+
+  <footer style="padding:24px clamp(18px,5vw,72px); border-top:1px solid var(--line); font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <span>Knitweb · vang · Pulse</span>
+    <span><a href="https://knitweb.github.io/gither/" style="color:var(--muted)">gither</a> · <a href="https://github.com/Knitweb/pulse" style="color:var(--muted)">pulse</a></span>
+  </footer>
+</body>
+</html>

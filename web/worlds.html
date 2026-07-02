@@ -1,0 +1,2206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Worlds Narrow Web — k.nitweb.art</title>
+  <meta name="description" content="The Worlds Narrow Web: rivalrous, settlement-final governance for knitweb worlds. GPU · TPU · QPU compute. Self-hosted node.">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* ── WNW page ─────────────────────────────────────────────────── */
+    :root { --qpu: #c084fc; }
+
+    /* hero */
+    .wnw-hero {
+      display: grid;
+      grid-template-columns: minmax(0,1fr) minmax(280px,420px);
+      gap: clamp(32px,6vw,80px);
+      align-items: center;
+      padding: clamp(56px,9vw,100px) clamp(18px,5vw,72px) clamp(48px,7vw,84px);
+      border-bottom: 1px solid var(--line);
+    }
+    .hero-tag { color: var(--accent); font-size: 12px; font-weight: 750;
+                 text-transform: uppercase; letter-spacing: .08em; margin: 0 0 12px; }
+    .hero-title { font-size: clamp(64px,10vw,120px); font-weight: 800;
+                   line-height: .9; margin: 0 0 20px; }
+    .hero-sub { color: var(--muted); font-size: clamp(15px,2vw,18px);
+                 max-width: 560px; margin: 0 0 28px; }
+    .hero-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pill { padding: 6px 14px; border: 1px solid var(--line); border-radius: 20px;
+             font-size: 12px; font-weight: 700; color: var(--muted);
+             text-decoration: none; }
+    .pill.gpu  { border-color: var(--accent); color: var(--accent); }
+    .pill.tpu  { border-color: var(--accent-2); color: var(--accent-2); }
+    .pill.qpu  { border-color: var(--qpu); color: var(--qpu); }
+    .pill.doc  { border-color: var(--line); color: var(--muted); }
+
+    /* seam diagram */
+    .seam-diagram {
+      display: grid; gap: 5px;
+      padding: 20px; border: 1px solid var(--line); border-radius: 10px;
+      background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    }
+    .seam-row { display: flex; align-items: center; gap: 8px; }
+    .seam-num { font-size: 11px; color: var(--muted); min-width: 22px; text-align: right; }
+    .seam-box { flex: 1; padding: 9px 12px; border: 1px solid var(--line);
+                 border-radius: 6px; background: #0f1419; font-size: 12px; font-weight: 700; }
+    .seam-box.a { border-color: var(--warn);   color: var(--warn); }
+    .seam-box.k { border-color: var(--accent); color: var(--accent); }
+    .seam-box.b { border-color: var(--accent-2); color: var(--accent-2); }
+    .seam-arrow { color: var(--muted); font-size: 14px; flex-shrink: 0; }
+    .seam-legend { display: flex; gap: 12px; font-size: 11px; margin-top: 10px; }
+    .seam-legend span { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+    .sl-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+    /* status bar */
+    .status-bar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 11px 16px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--panel); font-size: 13px; margin-bottom: 14px;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%;
+                   background: var(--muted); flex-shrink: 0; }
+    .status-dot.live { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .wallet-addr { flex: 1; font-family: ui-monospace, monospace; font-size: 12px;
+                    color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wallet-btn { padding: 5px 11px; border: 1px solid var(--line); border-radius: 5px;
+                   background: var(--panel-2); color: var(--ink); font-size: 12px;
+                   font-weight: 700; cursor: pointer; flex-shrink: 0; }
+    .gw-row { display: flex; gap: 8px; align-items: center; }
+    .gw-input { flex: 1; padding: 9px 13px; border: 1px solid var(--line); border-radius: 6px;
+                 background: var(--panel-2); color: var(--ink); font-size: 13px;
+                 font-family: ui-monospace, monospace; }
+    .gw-input:focus { outline: none; border-color: var(--accent); }
+    .gw-btn { padding: 9px 18px; border: none; border-radius: 6px; cursor: pointer;
+               font-weight: 700; font-size: 13px; background: var(--accent); color: #06100c;
+               flex-shrink: 0; }
+
+    /* worlds */
+    .worlds-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr));
+                    gap: 16px; margin-top: 24px; }
+    .world-card { padding: 20px; border: 1px solid var(--line); border-radius: 8px;
+                   background: var(--panel); display: flex; flex-direction: column; gap: 12px; }
+    .world-card.live { border-color: var(--accent); }
+    .world-name { font-size: 20px; font-weight: 750; margin: 0; }
+    .world-stat { display: flex; justify-content: space-between; font-size: 13px; }
+    .world-stat-label { color: var(--muted); }
+    .world-stat-value { font-weight: 700; }
+    .world-bar-wrap { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
+    .world-bar { height: 100%; border-radius: 3px; background: var(--accent);
+                  transition: width .6s ease; }
+
+    /* seam table */
+    .seam-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 18px; }
+    .seam-table th { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line);
+                      color: var(--muted); font-size: 11px; text-transform: uppercase; }
+    .seam-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .seam-table tr:last-child td { border-bottom: none; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px;
+              font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .badge.a { background: rgba(244,201,93,.13); color: var(--warn); }
+    .badge.k { background: rgba(95,208,165,.13); color: var(--accent); }
+    .badge.b { background: rgba(120,168,255,.13); color: var(--accent-2); }
+
+    /* ── GPU / compute ─────────────────────────────────── */
+    .compute-split {
+      display: grid; grid-template-columns: 1fr 360px; gap: 20px; align-items: start;
+    }
+    .gpu-canvas-wrap {
+      position: relative; border: 1px solid var(--accent); border-radius: 8px;
+      overflow: hidden; background: #000; aspect-ratio: 16/9;
+    }
+    #gpu-canvas { display: block; width: 100%; height: 100%; }
+    .gpu-overlay {
+      position: absolute; top: 10px; left: 12px; display: flex; gap: 8px;
+      align-items: center; font-size: 11px; font-family: ui-monospace, monospace;
+    }
+    .gpu-badge { padding: 2px 8px; border-radius: 4px; font-weight: 700;
+                  background: rgba(95,208,165,.18); color: var(--accent); font-size: 11px; }
+    .fps-badge { padding: 2px 8px; border-radius: 4px;
+                  background: rgba(11,13,16,.7); color: var(--muted); font-size: 11px; }
+    .gpu-fallback-msg {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      text-align: center; padding: 20px; background: var(--panel-2);
+    }
+    .gpu-fallback-msg p { color: var(--muted); font-size: 13px; margin: 0; line-height: 1.5; }
+
+    .pu-panel { display: flex; flex-direction: column; gap: 10px; }
+    .pu-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+               border: 1px solid var(--line); border-radius: 6px;
+               background: var(--panel-2); font-size: 13px; }
+    .pu-row.gpu-row { border-color: var(--accent); }
+    .pu-row.tpu-row { border-color: var(--accent-2); }
+    .pu-row.qpu-row { border-color: var(--qpu); }
+    .pu-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--line); }
+    .pu-dot.on.gpu { background: var(--accent); box-shadow: 0 0 5px var(--accent); }
+    .pu-dot.on.tpu { background: var(--accent-2); box-shadow: 0 0 5px var(--accent-2); }
+    .pu-dot.on.qpu { background: var(--qpu); box-shadow: 0 0 5px var(--qpu); }
+    .pu-dot.on.cpu { background: var(--muted); }
+    .pu-dot.off { background: #f87171; }
+    .pu-name { flex: 1; font-weight: 600; }
+    .pu-tag { font-size: 11px; color: var(--muted); }
+    .proof-btn { padding: 9px; border: none; border-radius: 6px; cursor: pointer;
+                  font-weight: 700; font-size: 13px; background: var(--accent); color: #06100c;
+                  width: 100%; margin-top: 6px; }
+    .proof-btn:disabled { background: var(--line); color: var(--muted); cursor: not-allowed; }
+    .proof-out { padding: 10px; border: 1px solid var(--line); border-radius: 5px;
+                  background: #0a0e11; font-size: 11px; font-family: ui-monospace, monospace;
+                  color: var(--accent); white-space: pre-wrap; word-break: break-all;
+                  min-height: 60px; margin-top: 8px; }
+
+    /* expandable PU credential panels */
+    .pu-wrap { display: flex; flex-direction: column; }
+    .pu-row { cursor: pointer; transition: border-color .15s; }
+    .pu-row:hover { border-color: var(--muted) !important; }
+    .pu-row.open { border-radius: 6px 6px 0 0; }
+    .pu-creds { display: none; padding: 14px; border: 1px solid var(--line);
+                 border-top: none; border-radius: 0 0 6px 6px;
+                 background: var(--panel); margin-bottom: 10px; }
+    .pu-creds.open { display: block; }
+    .pu-creds-desc { font-size: 12px; color: var(--muted); margin: 0 0 10px;
+                      line-height: 1.55; }
+    .pu-req-tag { display: inline-block; padding: 4px 10px; border: 1px solid var(--line);
+                   border-radius: 4px; font-size: 11px; background: var(--panel-2);
+                   color: var(--muted); margin-bottom: 10px; }
+    .pu-field-label { font-size: 11px; color: var(--muted); text-transform: uppercase;
+                       letter-spacing: .04em; margin: 10px 0 4px; display: block; }
+    .pu-field-label:first-of-type { margin-top: 0; }
+    .pu-cred-input { width: 100%; padding: 7px 10px; border: 1px solid var(--line);
+                      border-radius: 5px; background: #0a0e11; color: var(--ink);
+                      font-size: 12px; font-family: ui-monospace, monospace; }
+    .pu-cred-input:focus { outline: none; border-color: var(--accent); }
+    .pu-field-hint { font-size: 11px; color: var(--muted); margin: 3px 0 0; }
+    .pu-creds-btns { display: flex; gap: 8px; margin-top: 12px; }
+    .pu-save-btn { flex: 1; padding: 7px; border: none; border-radius: 5px; cursor: pointer;
+                    font-size: 12px; font-weight: 700; background: var(--accent);
+                    color: #06100c; }
+    .pu-clear-btn { padding: 7px 12px; border: 1px solid var(--line); border-radius: 5px;
+                     cursor: pointer; font-size: 12px; font-weight: 700; color: var(--muted);
+                     background: transparent; }
+    .pu-creds-link { display: inline-block; font-size: 12px; color: var(--accent-2);
+                      margin-top: 10px; text-decoration: none; }
+    .pu-creds-link:hover { text-decoration: underline; }
+    .pu-saved-msg { font-size: 11px; color: var(--accent); margin-top: 6px; display: none; }
+    .pu-toggle-hint { font-size: 10px; color: var(--muted); flex-shrink: 0;
+                       padding: 2px 6px; border: 1px solid var(--line); border-radius: 3px; }
+
+    /* settlement */
+    .settle-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+    .settle-input { padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px;
+                     background: var(--panel-2); color: var(--ink); font-size: 13px;
+                     font-family: inherit; width: 100%; }
+    .settle-input:focus { outline: none; border-color: var(--accent); }
+    .settle-btn { grid-column: 1/-1; padding: 11px; border: none; border-radius: 6px;
+                   cursor: pointer; font-weight: 700; font-size: 14px;
+                   background: var(--accent); color: #06100c; }
+    .settle-result { display: none; }
+    .settle-result.ok { display: block; padding: 12px; border-radius: 6px; margin-top: 10px;
+      border: 1px solid var(--accent); background: rgba(95,208,165,.07);
+      color: var(--accent); font-size: 12px; font-family: ui-monospace, monospace;
+      white-space: pre-wrap; word-break: break-all; }
+    .settle-result.err { display: block; padding: 12px; border-radius: 6px; margin-top: 10px;
+      border: 1px solid #f87171; background: rgba(248,113,113,.07);
+      color: #f87171; font-size: 12px; font-family: ui-monospace, monospace; }
+
+    /* ── self-host section ─────────────────────────────── */
+    .os-tabs { display: flex; gap: 4px; margin-bottom: 14px; }
+    .os-tab { padding: 7px 16px; border: 1px solid var(--line); border-radius: 6px 6px 0 0;
+               background: var(--panel); font-size: 13px; font-weight: 700; cursor: pointer;
+               border-bottom: none; color: var(--muted); }
+    .os-tab.active { background: var(--panel-2); color: var(--accent); border-color: var(--accent);
+                      border-bottom-color: var(--panel-2); }
+    .os-panel { display: none; padding: 18px; border: 1px solid var(--line); border-radius: 0 8px 8px 8px;
+                 background: var(--panel-2); }
+    .os-panel.active { display: block; }
+    .os-panel.linux  .os-tab-wrap { border-color: var(--accent); }
+    .cmd { background: #0a0e11; border: 1px solid var(--line); border-radius: 5px;
+            padding: 12px 14px; font-family: ui-monospace, monospace; font-size: 12px;
+            color: var(--accent); margin: 8px 0; position: relative; overflow-x: auto; }
+    .cmd-comment { color: var(--muted); }
+    .node-status-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-top: 22px; }
+    .node-stat { padding: 16px; border: 1px solid var(--line); border-radius: 7px;
+                  background: var(--panel); }
+    .node-stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase;
+                        margin-bottom: 6px; }
+    .node-stat-val { font-size: 18px; font-weight: 750; color: var(--accent); }
+
+    /* quantum frontier */
+    .frontier-panel {
+      padding: 20px; border: 1px solid var(--accent-2); border-radius: 8px;
+      background: rgba(120,168,255,.04);
+    }
+    .frontier-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-top: 14px; }
+    .f-stat { padding: 12px; border: 1px solid var(--line); border-radius: 6px;
+               background: var(--panel-2); }
+    .f-label { font-size: 11px; color: var(--muted); text-transform: uppercase; margin-bottom: 5px; }
+    .f-val { font-size: 18px; font-weight: 750; color: var(--accent-2); }
+
+    /* specify information */
+    .specify-shell {
+      max-width: 1080px; margin: 0 auto; border: 1px solid var(--line);
+      border-radius: 8px; background: var(--panel); overflow: hidden;
+    }
+    .specify-top {
+      display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 14px;
+      align-items: center; padding: 18px; border-bottom: 1px solid var(--line);
+      background: #0f1419;
+    }
+    .specify-logo { font-size: clamp(28px,5vw,52px); font-weight: 800; line-height: 1; }
+    .specify-bar {
+      display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px;
+      padding: 16px 18px 10px;
+    }
+    .specify-input {
+      width: 100%; min-height: 46px; padding: 12px 14px; border: 1px solid var(--line);
+      border-radius: 7px; background: var(--panel-2); color: var(--ink);
+      font-size: 16px;
+    }
+    .specify-input:focus { outline: none; border-color: var(--accent); }
+    .specify-btn {
+      min-height: 46px; padding: 0 18px; border: none; border-radius: 7px;
+      background: var(--accent); color: #06100c; font-weight: 800; cursor: pointer;
+    }
+    .specify-tools {
+      display: flex; flex-wrap: wrap; gap: 8px; padding: 0 18px 16px;
+      color: var(--muted); font-size: 12px;
+    }
+    .scope-chip {
+      border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px;
+      background: var(--panel-2); cursor: pointer;
+    }
+    .scope-chip.active { border-color: var(--accent); color: var(--accent); }
+    .proposal-grid {
+      display: grid; grid-template-columns: minmax(0,1fr) minmax(280px,380px);
+      gap: 18px; padding: 18px; border-top: 1px solid var(--line);
+    }
+    .proposal-panel {
+      border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2);
+      padding: 16px;
+    }
+    .proposal-metrics {
+      display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px;
+      margin: 12px 0;
+    }
+    .proposal-metric {
+      border: 1px solid var(--line); border-radius: 7px; padding: 10px;
+      background: #0a0e11;
+    }
+    .proposal-label { color: var(--muted); font-size: 10px; text-transform: uppercase; margin-bottom: 4px; }
+    .proposal-value { color: var(--accent); font-size: 16px; font-weight: 800; }
+    .column-row, .entity-row {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+    }
+    .column-pill, .entity-pill {
+      border: 1px solid var(--line); border-radius: 5px; padding: 4px 7px;
+      color: var(--muted); font-size: 11px; background: #0a0e11;
+    }
+    .entity-pill { color: var(--accent-2); border-color: rgba(120,168,255,.35); }
+    .result-card {
+      border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+      background: #0a0e11; margin-top: 10px;
+    }
+    .result-card h3 { font-size: 14px; margin-bottom: 4px; }
+    .result-card p { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .mini-table { width: 100%; border-collapse: collapse; font-size: 11px; color: var(--muted); }
+    .mini-table td { border-top: 1px solid var(--line); padding: 5px 0; }
+
+    /* quantum weft */
+    .weft-wrap {
+      display: grid; grid-template-columns: minmax(0,1fr) minmax(300px,420px);
+      gap: 22px; align-items: start;
+    }
+    .weft-stage {
+      position: relative; min-height: 460px; border: 1px solid var(--line);
+      border-radius: 8px; overflow: hidden; background: #05080b;
+    }
+    #weft-canvas { display: block; width: 100%; height: 100%; min-height: 460px; }
+    .weft-hud {
+      position: absolute; inset: 12px 12px auto auto; display: grid; gap: 6px;
+      min-width: 190px; padding: 10px; border: 1px solid var(--line);
+      border-radius: 7px; background: rgba(10,14,17,.78); backdrop-filter: blur(10px);
+      font-size: 11px; color: var(--muted);
+    }
+    .weft-hud strong { color: var(--accent); font-size: 13px; }
+    .layer-stack { display: grid; gap: 10px; }
+    .layer-card {
+      display: grid; grid-template-columns: auto minmax(0,1fr); gap: 10px;
+      padding: 12px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--panel-2);
+    }
+    .layer-index {
+      width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+      border: 1px solid var(--accent); color: var(--accent); font-weight: 800;
+      font-size: 12px;
+    }
+    .layer-card h3 { font-size: 15px; margin-bottom: 3px; }
+    .layer-card p { color: var(--muted); font-size: 12px; margin: 0; }
+    .weft-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .weft-controls label { color: var(--muted); font-size: 11px; }
+    .weft-controls input { width: 100%; accent-color: var(--accent); }
+
+    /* small-device relay */
+    .relay-grid {
+      display: grid; grid-template-columns: minmax(0,1fr) minmax(280px,400px);
+      gap: 18px;
+    }
+    .relay-card {
+      border: 1px solid var(--line); border-radius: 8px; padding: 16px;
+      background: var(--panel);
+    }
+    .relay-lines {
+      display: grid; gap: 8px; margin-top: 12px; font-family: ui-monospace, monospace;
+      font-size: 12px;
+    }
+    .relay-line {
+      border: 1px solid var(--line); border-radius: 6px; padding: 9px;
+      background: #0a0e11; color: var(--accent); overflow-wrap: anywhere;
+    }
+    .budget-row {
+      display: flex; justify-content: space-between; gap: 10px;
+      padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px;
+    }
+    .budget-row:last-child { border-bottom: none; }
+    .budget-row span:first-child { color: var(--muted); }
+    .budget-row span:last-child { font-weight: 800; }
+
+    /* forge and exchange */
+    .spectrum-grid {
+      display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px;
+    }
+    .spectrum-panel {
+      border: 1px solid var(--line); border-radius: 8px; padding: 18px;
+      background: var(--panel); min-height: 100%;
+    }
+    .spectrum-panel.quantum { border-color: rgba(120,168,255,.55); }
+    .spectrum-panel.vank { border-color: rgba(244,201,93,.55); }
+    .rail-list { display: grid; gap: 9px; margin-top: 14px; }
+    .rail-item {
+      display: grid; grid-template-columns: 28px minmax(0,1fr); gap: 10px;
+      align-items: start; padding: 10px; border: 1px solid var(--line);
+      border-radius: 7px; background: var(--panel-2);
+    }
+    .rail-num {
+      width: 24px; height: 24px; display: grid; place-items: center;
+      border-radius: 50%; border: 1px solid var(--accent-2);
+      color: var(--accent-2); font-size: 11px; font-weight: 800;
+    }
+    .spectrum-panel.vank .rail-num { border-color: var(--warn); color: var(--warn); }
+    .rail-item h3 { font-size: 14px; margin: 0 0 3px; }
+    .rail-item p { color: var(--muted); font-size: 12px; margin: 0; }
+    .record-demo {
+      margin-top: 14px; padding: 12px; border: 1px solid var(--line);
+      border-radius: 7px; background: #0a0e11; color: var(--accent);
+      font-family: ui-monospace, monospace; font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+    .market-strip {
+      display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px;
+      margin-top: 14px;
+    }
+    .market-tile {
+      border: 1px solid var(--line); border-radius: 7px; padding: 10px;
+      background: #0a0e11;
+    }
+    .market-tile span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; }
+    .market-tile strong { display: block; margin-top: 4px; font-size: 14px; color: var(--warn); }
+
+    .backlog-list {
+      display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px;
+    }
+    .backlog-item {
+      border: 1px solid var(--line); border-radius: 8px; padding: 16px;
+      background: var(--panel); min-height: 154px;
+    }
+    .backlog-item h3 { font-size: 15px; margin-bottom: 6px; color: var(--accent-2); }
+    .backlog-item p { color: var(--muted); font-size: 13px; margin: 0; }
+    .prio { display: inline-block; margin-bottom: 8px; font-size: 10px; font-weight: 800;
+      text-transform: uppercase; color: var(--warn); }
+
+    @media (max-width: 860px) {
+      .wnw-hero, .compute-split, .proposal-grid, .weft-wrap, .relay-grid, .spectrum-grid { grid-template-columns: 1fr; }
+      .wnw-hero { padding-top: 42px; }
+      .frontier-grid, .node-status-grid, .proposal-metrics, .backlog-list, .market-strip { grid-template-columns: 1fr 1fr; }
+      .settle-grid { grid-template-columns: 1fr; }
+      .settle-btn { grid-column: 1; }
+    }
+    @media (max-width: 520px) {
+      .frontier-grid, .node-status-grid, .proposal-metrics, .backlog-list, .market-strip, .specify-bar {
+        grid-template-columns: 1fr;
+      }
+      .weft-stage, #weft-canvas { min-height: 360px; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <a class="brand" href="worlds.html">k.nitweb.art</a>
+    <nav aria-label="Primary">
+      <a href="#worlds">Worlds</a>
+      <a href="#backlog">Backlog</a>
+      <a href="#self-host">Node</a>
+      <a href="#compute">Compute</a>
+      <a href="#specify">Specify</a>
+      <a href="#quantum-weft">Weft</a>
+      <a href="#spectrum">Spectrum</a>
+      <a href="worlds.html" style="color:var(--accent)">WNW ↗</a>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- ── HERO ─────────────────────────────────────────────────────────── -->
+    <section class="wnw-hero">
+      <div>
+        <p class="hero-tag">Worlds Narrow Web · rivalrous settlement layer</p>
+        <h1 class="hero-title">WNW</h1>
+        <p class="hero-sub">
+          Integer settlement. Float analytics. One vote per registered person per world.
+          GPU, TPU, and QPU compute—all P2P, all woven into the knitweb fabric.
+        </p>
+        <div class="hero-pills">
+          <a class="pill gpu"  href="#specify">Specify, do not search</a>
+          <a class="pill tpu"  href="#quantum-weft">Spherical weft</a>
+          <a class="pill qpu"  href="#spectrum">Quantum Forge · Vank DEX</a>
+          <a class="pill gpu"  href="#compute">WebGPU live</a>
+          <a class="pill tpu"  href="#compute">TPU ready</a>
+          <a class="pill qpu"  href="#compute">QPU — IBM · D-Wave</a>
+          <a class="pill doc"  href="output/pdf/wnw-quantum-weft-backlog.pdf">Backlog PDF</a>
+          <a class="pill qpu"  href="output/pdf/wnw-quantum-weft-paper.pdf">Technical Paper</a>
+          <a class="pill doc"  href="output/pdf/lens-quantum-strategy.pdf">Lens · Circuit Strategy PDF</a>
+          <a class="pill doc"  href="#self-host">Self-host node ↓</a>
+          <a class="pill doc"  href="docs/worlds-narrow-web.html">Architecture doc</a>
+        </div>
+      </div>
+
+      <!-- 5-seam architecture diagram -->
+      <div class="seam-diagram" aria-label="5-seam architecture">
+        <p class="eyebrow" style="margin:0 0 10px;font-size:11px">5-seam architecture</p>
+        <div class="seam-row">
+          <span class="seam-num">#1</span>
+          <div class="seam-box k">Registry (identity)</div>
+          <span class="seam-arrow">→</span>
+          <div class="seam-box a">vang analytics</div>
+        </div>
+        <div class="seam-row">
+          <span class="seam-num">#2</span>
+          <div class="seam-box k">Marks ingest</div>
+          <span class="seam-arrow">→</span>
+          <div class="seam-box a">int → float</div>
+        </div>
+        <div class="seam-row">
+          <span class="seam-num">#3</span>
+          <div class="seam-box b">World binding</div>
+          <span class="seam-arrow">⇄</span>
+          <div class="seam-box a">WorldDAO cap</div>
+        </div>
+        <div class="seam-row">
+          <span class="seam-num">#4</span>
+          <div class="seam-box a">Settlement order</div>
+          <span class="seam-arrow">→</span>
+          <div class="seam-box k">govern/settle</div>
+        </div>
+        <div class="seam-row">
+          <span class="seam-num">#5</span>
+          <div class="seam-box k">Dual-signed Knit</div>
+          <span class="seam-arrow">→</span>
+          <div class="seam-box k">ledger</div>
+        </div>
+        <div class="seam-legend">
+          <span><span class="sl-dot" style="background:var(--accent)"></span>knitweb</span>
+          <span><span class="sl-dot" style="background:var(--accent-2)"></span>both</span>
+          <span><span class="sl-dot" style="background:var(--warn)"></span>vang</span>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin:8px 0 0">
+          Floats never reach <code>canonical.encode()</code>.
+          Integers never carry analytic precision back out.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── SPECIFY INFORMATION ───────────────────────────────────────────── -->
+    <section id="specify" class="band">
+      <div class="section-head">
+        <p class="eyebrow">narrow web specify</p>
+        <h2>Specify information before retrieval.</h2>
+        <p>
+          WNW behaves more like a fact contract than a search box. Natural words
+          are first converted into a proposed scope, columns, entity list, and
+          estimated result size. Only then does a narrow-web node or wider web
+          source fetch the full table.
+        </p>
+      </div>
+
+      <div class="specify-shell">
+        <div class="specify-top">
+          <div>
+            <div class="specify-logo">WNW</div>
+            <p style="color:var(--muted);margin:6px 0 0">
+              A Lycos-like front door for facts: deliberate specification, bounded query.
+            </p>
+          </div>
+          <span class="pill qpu">estimate-first</span>
+        </div>
+        <div class="specify-bar">
+          <input id="specify-input" class="specify-input" spellcheck="false"
+            value="all steel mines with detail cards in the world"
+            aria-label="Specify information">
+          <button class="specify-btn" onclick="runSpecification()">Specify</button>
+        </div>
+        <div class="specify-tools" aria-label="Scope controls">
+          <button class="scope-chip active" onclick="setSpecScope('world', this)">world</button>
+          <button class="scope-chip" onclick="setSpecScope('nearby', this)">nearby device</button>
+          <button class="scope-chip" onclick="setSpecScope('mesh', this)">known peers</button>
+          <button class="scope-chip" onclick="setSpecScope('web', this)">fallback web</button>
+        </div>
+        <div class="proposal-grid">
+          <div class="proposal-panel">
+            <p class="eyebrow" style="margin:0 0 8px">query proposal</p>
+            <h3 id="proposal-title" style="margin-bottom:6px">steel mine detail cards</h3>
+            <p id="proposal-copy" style="color:var(--muted);font-size:13px;margin-bottom:0">
+              Initial scan only: classify terms, choose a table shape, estimate rows and bytes,
+              then ask the user to accept or narrow the fact contract.
+            </p>
+            <div class="proposal-metrics">
+              <div class="proposal-metric"><div class="proposal-label">Rows</div><div class="proposal-value" id="proposal-rows">9,840</div></div>
+              <div class="proposal-metric"><div class="proposal-label">Columns</div><div class="proposal-value" id="proposal-cols">18</div></div>
+              <div class="proposal-metric"><div class="proposal-label">Payload</div><div class="proposal-value" id="proposal-bytes">4.6 MB</div></div>
+              <div class="proposal-metric"><div class="proposal-label">Packets</div><div class="proposal-value" id="proposal-packets">33k</div></div>
+            </div>
+            <p class="eyebrow" style="font-size:11px;margin:12px 0 0">proposed columns</p>
+            <div class="column-row" id="proposal-columns"></div>
+            <p class="eyebrow" style="font-size:11px;margin:14px 0 0">initial entities</p>
+            <div class="entity-row" id="proposal-entities"></div>
+            <div class="actions" style="margin-top:16px">
+              <button class="button primary" onclick="queryProposedSlice()" type="button">Query proposed slice</button>
+              <button class="button" onclick="narrowSpecification()" type="button">Narrow scope</button>
+            </div>
+          </div>
+          <div class="proposal-panel" id="proposal-results">
+            <p class="eyebrow" style="margin:0 0 8px">detail-card preview</p>
+            <div class="result-card">
+              <h3>Carajas Serra Norte</h3>
+              <p>Iron ore operation, Brazil. Proposed card uses operator, commodity, location, output, reserve class, provenance, and update beat.</p>
+              <table class="mini-table"><tr><td>source layer</td><td>narrow web + public fallback</td></tr><tr><td>confidence</td><td>proposal only</td></tr></table>
+            </div>
+            <div class="result-card">
+              <h3>Kiruna</h3>
+              <p>Iron ore operation, Sweden. Included because "steel mines" maps to iron ore, metallurgical coal, and direct-reduced-iron inputs unless narrowed.</p>
+              <table class="mini-table"><tr><td>source layer</td><td>narrow web</td></tr><tr><td>payload/card</td><td>480 bytes target</td></tr></table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── WALLET + GATEWAY ──────────────────────────────────────────────── -->
+    <section class="band">
+      <div class="section-head">
+        <p class="eyebrow">wallet + gateway</p>
+        <h2>Your narrow-web identity.</h2>
+        <p>Keys live in your browser — never leave your device. Connect a spider node to read live world data and submit signed records.</p>
+      </div>
+      <div class="status-bar">
+        <span class="status-dot" id="gw-dot"></span>
+        <span class="wallet-addr" id="wallet-addr">Generating…</span>
+        <button class="wallet-btn" onclick="newWallet()">New</button>
+        <button class="wallet-btn" onclick="copyAddr()">Copy address</button>
+      </div>
+      <div class="gw-row">
+        <input id="gw-url" class="gw-input" type="url"
+          placeholder="Spider gateway — e.g. http://127.0.0.1:8090"
+          oninput="saveGateway(this.value)">
+        <button class="gw-btn" onclick="probe()">Connect</button>
+      </div>
+      <p id="gw-status" style="font-size:13px;color:var(--muted);margin:8px 0 0">
+        No gateway — showing demo data. <a href="#self-host" style="color:var(--accent)">Run your node ↓</a>
+      </p>
+    </section>
+
+    <!-- ── SMALL DEVICE RELAY ────────────────────────────────────────────── -->
+    <section id="relay" class="band">
+      <div class="section-head">
+        <p class="eyebrow">small device to small device</p>
+        <h2>WNW narrowcast for BC2-style relays.</h2>
+        <p>
+          The same fact proposal can be compressed into a two-line capsule for
+          bitchat-like field use. The capsule carries scope, CID hints, pulse beat,
+          and an estimate digest; peers can accept, refine, or request the full slice.
+        </p>
+      </div>
+      <div class="relay-grid">
+        <div class="relay-card">
+          <p class="eyebrow" style="margin:0 0 8px">capsule budget</p>
+          <div class="budget-row"><span>Transport</span><span>WNW/BC2 text relay</span></div>
+          <div class="budget-row"><span>Visible lines</span><span>2 x 140 chars target</span></div>
+          <div class="budget-row"><span>Initial payload</span><span>scope + estimate + CID hints</span></div>
+          <div class="budget-row"><span>Full table</span><span>queried only after accept</span></div>
+          <div class="budget-row"><span>Security stance</span><span>field relay, not private-key storage</span></div>
+        </div>
+        <div class="relay-card">
+          <p class="eyebrow" style="margin:0 0 8px">copyable proposal</p>
+          <div class="relay-lines" id="relay-lines">
+            <div class="relay-line">WNW1 steel-mines rows=9840 cols=18 bytes=4.6MB beat=0</div>
+            <div class="relay-line">CID? est=demo scope=world accept=narrow/refine/query</div>
+          </div>
+          <div class="actions" style="margin-top:14px">
+            <button class="button primary" onclick="copyRelayLines()" type="button">Copy capsule</button>
+            <button class="button" onclick="runSpecification()" type="button">Refresh from proposal</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── REGISTERED WORLDS ─────────────────────────────────────────────── -->
+    <section id="worlds" class="band">
+      <div class="section-head">
+        <p class="eyebrow">registered worlds</p>
+        <h2>One vote per person per world.</h2>
+        <p>
+          <code>max_vote_supply = registered + expected_births</code> — anchored to real population.
+          No operator can mint governance weight out of thin air. Float analytics reads the registry;
+          only integers cross into the knitweb settlement layer.
+        </p>
+      </div>
+      <div class="worlds-grid" id="worlds-grid"><!-- JS --></div>
+    </section>
+
+    <!-- ── QUANTUM WEFT ──────────────────────────────────────────────────── -->
+    <section id="quantum-weft" class="band">
+      <div class="section-head">
+        <p class="eyebrow">quantum weft</p>
+        <h2>Spherical layers, not square linear rails.</h2>
+        <p>
+          The research direction is a 3D fabric where addresses are radial and
+          angular: radius for layer, theta/phi for position, pulse for time.
+          That keeps traversal human-readable in AR/VR while remaining ready for
+          optically addressable molecules, quantum dots, and bonded molecular
+          structures after 2036.
+        </p>
+      </div>
+      <div class="weft-wrap">
+        <div class="weft-stage">
+          <canvas id="weft-canvas" aria-label="Animated spherical quantum weft layer demo"></canvas>
+          <div class="weft-hud">
+            <strong id="weft-hud-title">pulse vessel</strong>
+            <span id="weft-hud-coord">r=0 θ=0° φ=0° beat=0</span>
+            <span>Drag to rotate · traverse 360° · inspect shells.</span>
+            <span id="weft-ar-hint" style="display:none;margin-top:4px">
+              <button id="weft-ar-btn" onclick="launchWeftAR()"
+                style="padding:4px 10px;border:1px solid var(--accent-2);border-radius:4px;
+                       background:transparent;color:var(--accent-2);font-size:11px;cursor:pointer">
+                ⬡ Enter AR
+              </button>
+            </span>
+          </div>
+        </div>
+        <div>
+          <div class="layer-stack">
+            <div class="layer-card"><div class="layer-index">0</div><div><h3>Pulse vessel</h3><p>Clock, event root, and beat envelope connecting within-layer and cross-layer changes.</p></div></div>
+            <div class="layer-card"><div class="layer-index">1</div><div><h3>Quantum-dot anchor</h3><p>Optical or indirect address surface: laser path, dot/molecule identity, and emission band.</p></div></div>
+            <div class="layer-card"><div class="layer-index">2</div><div><h3>Bonded molecule ring</h3><p>Element addresses bind to neighboring elements through bonds, not square grid edges.</p></div></div>
+            <div class="layer-card"><div class="layer-index">3</div><div><h3>Frequency shell</h3><p>Outer layers use different bands and neighbor relations while staying connected to center.</p></div></div>
+            <div class="layer-card"><div class="layer-index">4</div><div><h3>Narrow-web fabric</h3><p>P2P query proposals, RAG facts, and LLM context packets traverse the sphere.</p></div></div>
+            <div class="layer-card"><div class="layer-index">5</div><div><h3>Human lens</h3><p>AR/VR views show 360-degree coordinate traversal and allow direct fact inspection.</p></div></div>
+          </div>
+          <div class="weft-controls">
+            <label>rotation<input id="weft-speed" type="range" min="0" max="4" step="1" value="2"></label>
+            <label>shell focus<input id="weft-focus" type="range" min="0" max="5" step="1" value="4"></label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SPECTRUM: QUANTUM FORGE + VANK EXCHANGE ──────────────────────── -->
+    <section id="spectrum" class="band">
+      <div class="section-head">
+        <p class="eyebrow">two ends of the fabric</p>
+        <h2>Quantum Forge on one side, Vank Mesh Exchange on the other.</h2>
+        <p>
+          The same WNW record fabric can hold code, run results, and markets.
+          At the research end it becomes a GitHub-like forge for quantum circuit
+          code with MLflow-style experiment lineage. At the Vank end it becomes
+          a non-custodial P2P exchange: Mt. Gox/Bitcoin.de/Intersango market
+          familiarity without a central wallet or hosted orderbook as trust root.
+        </p>
+      </div>
+
+      <div class="spectrum-grid">
+        <div class="spectrum-panel quantum">
+          <p class="eyebrow" style="margin:0 0 8px">quantum forge</p>
+          <h2 style="font-size:26px;margin-bottom:10px">Code, circuits, runs.</h2>
+          <p style="color:var(--muted)">
+            Gither becomes the code-forge layer for quantum work: repositories,
+            issues, reviews, signed refs, circuit manifests, and reproducible
+            run records. MLflow-like tracking lives in the fabric rather than a
+            single experiment server.
+          </p>
+          <div class="rail-list">
+            <div class="rail-item"><div class="rail-num">1</div><div><h3>Circuit repo</h3><p>Signed repository refs for QASM, QIR, Qiskit, Cirq, PennyLane, and reversible arithmetic libraries.</p></div></div>
+            <div class="rail-item"><div class="rail-num">2</div><div><h3>Experiment run</h3><p>Parameters, backend, shots, seed, transpiler version, queue time, calibration hash, and result CID.</p></div></div>
+            <div class="rail-item"><div class="rail-num">3</div><div><h3>Benchmark frontier</h3><p>Integer score comparisons for Toffoli, depth, qubits, fidelity, cost, and reproducibility.</p></div></div>
+            <div class="rail-item"><div class="rail-num">4</div><div><h3>Review and reproduce</h3><p>Peer review is signed. A passing run can reproduce the claimed circuit frontier before merge.</p></div></div>
+          </div>
+          <div class="record-demo">quantum-run:{repo,circuit_cid,backend,shots,params,result_cid,score_int,review_sig}</div>
+        </div>
+
+        <div class="spectrum-panel vank">
+          <p class="eyebrow" style="margin:0 0 8px;color:var(--warn)">vank mesh exchange</p>
+          <h2 style="font-size:26px;margin-bottom:10px">Markets without custody.</h2>
+          <p style="color:var(--muted)">
+            Vank can provide the exchange side: local order intents, peer escrow
+            conditions, reputation, settlement proofs, and fiat/crypto rails.
+            The product can feel familiar to early exchange users, but funds and
+            truth stay client-side and protocol-owned.
+          </p>
+          <div class="market-strip">
+            <div class="market-tile"><span>Custody</span><strong>none</strong></div>
+            <div class="market-tile"><span>Orderbook</span><strong>gossip</strong></div>
+            <div class="market-tile"><span>Settlement</span><strong>atomic</strong></div>
+            <div class="market-tile"><span>Reputation</span><strong>signed</strong></div>
+          </div>
+          <div class="rail-list">
+            <div class="rail-item"><div class="rail-num">1</div><div><h3>Offer intent</h3><p>Maker signs pair, side, amount, price band, expiry, jurisdiction hints, and settlement method.</p></div></div>
+            <div class="rail-item"><div class="rail-num">2</div><div><h3>Match and escrow</h3><p>Peers negotiate locally. Escrow can be HTLC, multisig, bonded mediator, or proof-of-payment depending on rail.</p></div></div>
+            <div class="rail-item"><div class="rail-num">3</div><div><h3>Proof settlement</h3><p>Pulse records state transitions: opened, locked, paid, released, disputed, resolved.</p></div></div>
+            <div class="rail-item"><div class="rail-num">4</div><div><h3>No exchange wallet</h3><p>The exchange never becomes Mt. Gox. It publishes signed market facts; users keep keys and final settlement authority.</p></div></div>
+          </div>
+          <div class="record-demo">vank-order:{pair,side,amount_int,price_tick,expiry,escrow,proof_cid,signatures}</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SEAM CONTRACTS ────────────────────────────────────────────────── -->
+    <section class="band">
+      <div class="section-head">
+        <p class="eyebrow">seam contracts</p>
+        <h2>Every crossing is explicit.</h2>
+        <p>The seam table is the public contract between the float analytics layer (vang / WorldDAO) and the knitweb integer value path. <code>SettlementOrder.amount</code> must be int — <code>TypeError</code> on float.</p>
+      </div>
+      <table class="seam-table">
+        <thead><tr><th>#</th><th>Seam</th><th>Direction</th><th>Owner</th><th>Crossing rule</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Registry (identity)</td><td>knitweb → analytics</td>
+              <td><span class="badge k">knitweb</span></td>
+              <td>Subject digest only — raw PII never stored</td></tr>
+          <tr><td>2</td><td>Marks ingest</td><td>knitweb → analytics</td>
+              <td><span class="badge b">both</span></td>
+              <td>Integer marks become float analytics at explicit divisor</td></tr>
+          <tr><td>3</td><td>World binding (WorldDAO)</td><td>analytics ⇄ knitweb</td>
+              <td><span class="badge a">vang</span></td>
+              <td><code>cap()</code> reads knitweb registry; membership additive-only</td></tr>
+          <tr><td>4</td><td>Settlement order</td><td>analytics → knitweb</td>
+              <td><span class="badge k">knitweb</span></td>
+              <td>float → int at <code>quantize()</code>; knitweb never imports float layer</td></tr>
+          <tr><td>5</td><td>Dual-signed Knit</td><td>knitweb internal</td>
+              <td><span class="badge k">knitweb</span></td>
+              <td>nonce + network id + balance guards all enforced in <code>ledger/knit.py</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ── COMPUTE NETWORK ───────────────────────────────────────────────── -->
+    <section id="compute" class="band">
+      <div class="section-head">
+        <p class="eyebrow">P2P compute network</p>
+        <h2>GPU · TPU · QPU — all first-class.</h2>
+        <p>
+          Every processing unit is a potential spider worker. WebGPU runs live here in your browser.
+          TPU and QPU proofs require a credential (stored locally in <code>localStorage</code>).
+          Proofs are integer-only signed records woven into the knitweb fabric.
+        </p>
+      </div>
+
+      <div class="compute-split">
+        <!-- Left: live WebGPU canvas -->
+        <div>
+          <p class="eyebrow" style="margin:0 0 10px">WebGPU raymarcher (live)</p>
+          <div class="gpu-canvas-wrap">
+            <canvas id="gpu-canvas"></canvas>
+            <div class="gpu-overlay">
+              <span class="gpu-badge" id="gpu-name">detecting…</span>
+              <span class="fps-badge" id="fps-badge">– fps</span>
+            </div>
+            <div class="gpu-fallback-msg" id="gpu-fallback" style="display:none">
+              <p>WebGPU not available in this browser.<br>
+                 Try Chrome 113+ or Edge 113+.<br>
+                 <small style="color:var(--muted)">CPU proof still works below.</small></p>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <input type="range" id="scene-sel" min="0" max="3" step="1" value="0"
+              style="flex:1;accent-color:var(--accent)"
+              oninput="currentScene=+this.value" title="Scene">
+            <input type="range" id="speed-sel" min="0.1" max="3" step="0.1" value="1"
+              style="flex:1;accent-color:var(--accent-2)"
+              oninput="currentSpeed=+this.value" title="Speed">
+            <a href="#quantum-weft"
+               style="font-size:12px;color:var(--accent-2);white-space:nowrap;
+                      padding:6px 10px;border:1px solid var(--line);border-radius:5px;
+                      text-decoration:none;align-self:center">
+              Full render ↗
+            </a>
+          </div>
+        </div>
+
+        <!-- Right: PU panel + proof -->
+        <div class="pu-panel">
+          <p class="eyebrow" style="margin:0 0 8px">available PUs</p>
+          <div id="pu-list"></div>
+
+          <p class="eyebrow" style="margin:12px 0 8px">create proof</p>
+          <select id="pu-select" class="settle-input">
+            <option value="auto">auto — best available</option>
+            <option value="gpu">GPU (WebGPU)</option>
+            <option value="tpu">TPU (Google Cloud)</option>
+            <option value="qpu-ibm">QPU — IBM Quantum</option>
+            <option value="qpu-dwave">QPU — D-Wave Advantage</option>
+            <option value="cpu">CPU (Web Crypto)</option>
+          </select>
+          <button class="proof-btn" id="prove-btn" onclick="runComputeProof()">
+            Create compute proof
+          </button>
+          <div id="compute-proof-out" class="proof-out">–</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── BACKLOG (live from GitHub) ───────────────────────────────────── -->
+    <section id="backlog" class="band">
+      <div class="section-head">
+        <p class="eyebrow">build backlog · live from GitHub</p>
+        <h2>Build order for WNW Quantum Weft.</h2>
+        <p>
+          Issues are tracked in
+          <a href="https://github.com/Knitweb/pulse/issues?q=is%3Aissue+is%3Aopen+label%3Awnw"
+             target="_blank" rel="noopener" style="color:var(--accent)">Knitweb/pulse</a>
+          and on the
+          <a href="https://github.com/orgs/Knitweb/projects/6"
+             target="_blank" rel="noopener" style="color:var(--accent-2)">project board ↗</a>.
+          This panel fetches live status.
+        </p>
+      </div>
+
+      <!-- kanban-style header -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap">
+        <a class="button primary" href="https://github.com/orgs/Knitweb/projects/6"
+           target="_blank" rel="noopener">Open kanban ↗</a>
+        <a class="button" href="https://github.com/Knitweb/pulse/issues/new?labels=wnw&template=wnw-backlog.md"
+           target="_blank" rel="noopener">+ New issue</a>
+        <span id="bl-meta" style="font-size:12px;color:var(--muted);margin-left:auto"></span>
+        <button class="button" onclick="loadBacklog(true)" style="font-size:11px">↺ Refresh</button>
+      </div>
+
+      <!-- priority filter tabs -->
+      <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+        <button class="scope-chip active" onclick="filterBacklog('all',this)">All</button>
+        <button class="scope-chip" onclick="filterBacklog('P0',this)"
+          style="color:#d73a4a;border-color:#d73a4a44">P0</button>
+        <button class="scope-chip" onclick="filterBacklog('P1',this)"
+          style="color:#e4e669;border-color:#e4e66944">P1</button>
+        <button class="scope-chip" onclick="filterBacklog('P2',this)"
+          style="color:#0075ca;border-color:#0075ca44">P2</button>
+        <button class="scope-chip" onclick="filterBacklog('open',this)">Open</button>
+        <button class="scope-chip" onclick="filterBacklog('closed',this)">Done</button>
+      </div>
+
+      <div id="bl-grid" class="backlog-list" style="min-height:100px">
+        <div style="color:var(--muted);font-size:13px;padding:16px 0">Loading from GitHub…</div>
+      </div>
+    </section>
+
+    <!-- ── SETTLEMENT DEMO ───────────────────────────────────────────────── -->
+    <section class="band">
+      <div class="section-head">
+        <p class="eyebrow">settlement demo</p>
+        <h2>Submit a SettlementOrder.</h2>
+        <p>
+          Connect a gateway to execute a real dual-signed Knit through the <code>govern/settle</code>
+          pathway. Without a gateway, this shows what the integer-only SettlementOrder record would
+          look like — floats are rejected at the seam boundary.
+        </p>
+      </div>
+      <div class="settle-grid">
+        <select id="settle-kind" class="settle-input">
+          <option value="COUPON">COUPON — periodic PLS coupon</option>
+          <option value="REDEMPTION">REDEMPTION — face value at maturity</option>
+          <option value="CONVERSION">CONVERSION — underlying token units</option>
+        </select>
+        <select id="settle-world" class="settle-input">
+          <option value="earth">Earth</option>
+          <option value="moon">Moon</option>
+        </select>
+        <input id="settle-amount" class="settle-input" type="number" min="1" value="1000"
+          placeholder="Amount (integer base units)">
+        <input id="settle-symbol" class="settle-input" type="text" value="PLS"
+          placeholder="Symbol">
+        <button class="settle-btn" onclick="submitSettle()">Preview settlement order →</button>
+      </div>
+      <div id="settle-result" class="settle-result"></div>
+    </section>
+
+    <!-- ── SELF-HOST ─────────────────────────────────────────────────────── -->
+    <section id="self-host" class="band">
+      <div class="section-head">
+        <p class="eyebrow">self-hosted node</p>
+        <h2>Run your spider. No hosting provider.</h2>
+        <p>
+          A WNW spider is a single Python process: HTTP gateway + WebGPU worker + P2P relay client.
+          One command installs it and registers it on the 5mart.ml relay fabric.
+        </p>
+      </div>
+
+      <div class="os-tabs">
+        <button class="os-tab active" onclick="showOS('linux',this)">Linux</button>
+        <button class="os-tab" onclick="showOS('mac',this)">macOS</button>
+        <button class="os-tab" onclick="showOS('win',this)">Windows</button>
+      </div>
+
+      <div id="os-linux" class="os-panel active">
+        <div class="cmd"><span class="cmd-comment"># Install Vulkan (Ubuntu/Debian) — required for WebGPU on Linux</span>
+sudo apt install -y vulkan-tools mesa-vulkan-drivers libvulkan1</div>
+        <div class="cmd"><span class="cmd-comment"># Clone + install</span>
+git clone https://github.com/Knitweb/wnw && cd wnw
+python3 install.py --yes</div>
+        <div class="cmd"><span class="cmd-comment"># Or run directly (no service)</span>
+python3 infra/node/spider.py --host 0.0.0.0 --port 8090</div>
+        <div class="cmd"><span class="cmd-comment"># Service management</span>
+systemctl --user status wnw-spider
+journalctl --user -u wnw-spider -f</div>
+      </div>
+
+      <div id="os-mac" class="os-panel">
+        <div class="cmd"><span class="cmd-comment"># macOS 10.14+ — Metal is always available</span>
+git clone https://github.com/Knitweb/wnw && cd wnw
+python3 install.py --yes</div>
+        <div class="cmd"><span class="cmd-comment"># Or run directly</span>
+python3 infra/node/spider.py --port 8090</div>
+        <div class="cmd"><span class="cmd-comment"># Manage launchd agent</span>
+launchctl list | grep knitweb
+launchctl stop com.knitweb.wnw
+tail -f /tmp/wnw-spider.log</div>
+      </div>
+
+      <div id="os-win" class="os-panel">
+        <div class="cmd"><span class="cmd-comment"># Run PowerShell as Administrator</span>
+git clone https://github.com/Knitweb/wnw; cd wnw
+python install.py --yes</div>
+        <div class="cmd"><span class="cmd-comment"># Or install Windows Service manually (DX12/Vulkan)</span>
+powershell -ExecutionPolicy Bypass -File infra\service\Install-WNWService.ps1</div>
+        <div class="cmd"><span class="cmd-comment"># Manage service</span>
+sc query WNWSpider
+sc start WNWSpider
+Get-Content -Wait C:\ProgramData\knitweb\wnw-spider.log</div>
+      </div>
+
+      <div class="node-status-grid">
+        <div class="node-stat"><div class="node-stat-label">Gateway</div>
+          <div class="node-stat-val" id="ns-gw">–</div></div>
+        <div class="node-stat"><div class="node-stat-label">GPU backend</div>
+          <div class="node-stat-val" id="ns-gpu">–</div></div>
+        <div class="node-stat"><div class="node-stat-label">Relay mailbox</div>
+          <div class="node-stat-val" id="ns-relay" style="font-size:12px;font-family:monospace">–</div></div>
+      </div>
+    </section>
+
+    <!-- ── QUANTUM FRONTIER ──────────────────────────────────────────────── -->
+    <section class="band">
+      <div class="section-head">
+        <p class="eyebrow">quantum frontier</p>
+        <h2>Circuit scores live in the fabric.</h2>
+        <p>
+          Quantum circuit submissions (ecdsafail, sha256.fail) are signed and woven into the
+          knitweb Web as content-addressed records. The same fabric the WNW governance layer
+          reads for SettlementOrder provenance.
+        </p>
+      </div>
+      <div class="frontier-panel">
+        <p class="eyebrow" style="margin:0;font-size:11px">current frontier — secp256k1-point-add</p>
+        <div class="frontier-grid" id="frontier-row"><!-- JS --></div>
+        <div class="actions" style="margin-top:16px">
+          <a class="button primary" href="https://ecdsa.fail/">ecdsa.fail leaderboard</a>
+          <a class="button" href="https://sha256.fail/">sha256.fail</a>
+          <a class="button" href="https://github.com/febuz/ecdsafail">ecdsafail repo</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>k.nitweb.art / worlds narrow web</span>
+    <span>Knitweb · vang · Pulse · <a href="docs/worlds-narrow-web.html" style="color:var(--accent-2)">WNW architecture ↗</a></span>
+  </footer>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       SCRIPT — all inline, no ES module dependencies
+  ═══════════════════════════════════════════════════════════════════════ -->
+  <script>
+  'use strict';
+
+  // ── wallet ───────────────────────────────────────────────────────────────
+  const ADDR_KEY = 'wnw_wallet_addr';
+  const GW_KEY   = 'wnw_gateway_url';
+  let gwLive = false;
+  let specScope = 'world';
+
+  function _hexRand(n) {
+    const b = new Uint8Array(n); crypto.getRandomValues(b);
+    return Array.from(b).map(x => x.toString(16).padStart(2,'0')).join('');
+  }
+
+  function newWallet() {
+    const addr = 'pls1' + _hexRand(20);
+    localStorage.setItem(ADDR_KEY, addr);
+    document.getElementById('wallet-addr').textContent = addr;
+  }
+  function loadWallet() {
+    const a = localStorage.getItem(ADDR_KEY);
+    if (!a) { newWallet(); return; }
+    document.getElementById('wallet-addr').textContent = a;
+  }
+  function copyAddr() {
+    navigator.clipboard.writeText(
+      document.getElementById('wallet-addr').textContent
+    ).catch(() => {});
+  }
+
+  // ── specify information ─────────────────────────────────────────────────
+  const SPEC_COLUMNS = [
+    'entity_id', 'name', 'commodity', 'mine_type', 'operator', 'country',
+    'lat', 'lon', 'annual_output_tonnes', 'reserve_class', 'status',
+    'opened_year', 'source_layer', 'confidence', 'last_beat', 'provenance_cid',
+    'detail_card_bytes', 'query_accept'
+  ];
+  const SPEC_ENTITIES = [
+    'Carajas Serra Norte', 'Kiruna', 'Pilbara iron ore system',
+    'Sishen', 'Mont-Wright', 'Bailadila', 'Minas-Rio', 'Hamersley',
+    'Itabira', 'Labrador Trough'
+  ];
+  const SPEC_SCOPE_FACTORS = { world: 1, nearby: 0.03, mesh: 0.18, web: 2.4 };
+
+  function setSpecScope(scope, btn) {
+    specScope = scope;
+    document.querySelectorAll('.specify-tools .scope-chip').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    runSpecification();
+  }
+
+  function _fmtInt(n) {
+    return Math.round(n).toLocaleString('en-US');
+  }
+
+  function _fmtBytes(bytes) {
+    if (bytes >= 1_000_000) return (bytes / 1_000_000).toFixed(1) + ' MB';
+    if (bytes >= 1_000) return (bytes / 1_000).toFixed(1) + ' KB';
+    return bytes + ' B';
+  }
+
+  function _shortDigest(s) {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(16).padStart(8, '0');
+  }
+
+  function runSpecification() {
+    const q = (document.getElementById('specify-input').value || '').trim();
+    const lower = q.toLowerCase();
+    const steel = lower.includes('steel') || lower.includes('iron') || lower.includes('mine');
+    const baseRows = steel ? 9840 : 1200;
+    const columns = steel ? SPEC_COLUMNS : SPEC_COLUMNS.slice(0, 12);
+    const factor = SPEC_SCOPE_FACTORS[specScope] || 1;
+    const rows = Math.max(1, Math.round(baseRows * factor));
+    const bytesPerRow = steel ? 486 : 320;
+    const bytes = rows * columns.length * bytesPerRow / 18;
+    const packets = Math.ceil(bytes / 140);
+    const scopeCopy = {
+      world: 'global narrow-web registry plus public fallback sources',
+      nearby: 'nearby device cache only; no wide fetch',
+      mesh: 'known peer fabric; source claims stay local to the mesh',
+      web: 'wide fallback scan; use only when the fact contract is under-specified'
+    }[specScope] || 'global narrow-web registry';
+
+    document.getElementById('proposal-title').textContent =
+      steel ? 'steel mine detail cards' : 'general fact-card table';
+    document.getElementById('proposal-copy').textContent =
+      `Scope: ${scopeCopy}. Proposal only: ${rows.toLocaleString('en-US')} rows before full retrieval.`;
+    document.getElementById('proposal-rows').textContent = _fmtInt(rows);
+    document.getElementById('proposal-cols').textContent = String(columns.length);
+    document.getElementById('proposal-bytes').textContent = _fmtBytes(Math.round(bytes));
+    document.getElementById('proposal-packets').textContent = _fmtInt(packets);
+    document.getElementById('proposal-columns').innerHTML = columns
+      .map(c => `<span class="column-pill">${c}</span>`).join('');
+    document.getElementById('proposal-entities').innerHTML = SPEC_ENTITIES.slice(0, specScope === 'nearby' ? 4 : 10)
+      .map(e => `<span class="entity-pill">${e}</span>`).join('');
+
+    const digest = _shortDigest(q + ':' + specScope + ':' + rows + ':' + columns.length);
+    document.getElementById('relay-lines').innerHTML = `
+      <div class="relay-line">WNW1 ${steel ? 'steel-mines' : 'fact-cards'} rows=${rows} cols=${columns.length} bytes=${_fmtBytes(Math.round(bytes))} beat=0</div>
+      <div class="relay-line">CID? est=${digest} scope=${specScope} accept=narrow/refine/query</div>`;
+  }
+
+  function narrowSpecification() {
+    document.getElementById('specify-input').value =
+      'active iron ore mines with operator, country, output, reserves, and provenance';
+    runSpecification();
+  }
+
+  function queryProposedSlice() {
+    const rows = document.getElementById('proposal-rows').textContent;
+    const bytes = document.getElementById('proposal-bytes').textContent;
+    document.getElementById('proposal-results').innerHTML = `
+      <p class="eyebrow" style="margin:0 0 8px">accepted slice preview</p>
+      <div class="result-card">
+        <h3>Execution plan</h3>
+        <p>Accepted estimate: ${rows} rows, ${bytes}. WNW would now fetch detail cards from narrow-web peers first, then call wider web or LLM fallback only for unresolved fields.</p>
+        <table class="mini-table"><tr><td>stage 1</td><td>local facts + peer fabric</td></tr><tr><td>stage 2</td><td>provenance check</td></tr><tr><td>stage 3</td><td>detail-card table</td></tr></table>
+      </div>
+      <div class="result-card">
+        <h3>RAG payload</h3>
+        <p>The LLM receives bounded fact slices and citations, not a vague open-web prompt. Token and byte cost are predictable after the initial scan.</p>
+        <table class="mini-table"><tr><td>context mode</td><td>P2P connected LLM</td></tr><tr><td>query surface</td><td>narrow web first</td></tr></table>
+      </div>`;
+  }
+
+  function copyRelayLines() {
+    const lines = [...document.querySelectorAll('#relay-lines .relay-line')]
+      .map(el => el.textContent).join('\n');
+    navigator.clipboard.writeText(lines).catch(() => {});
+  }
+
+  // ── gateway ───────────────────────────────────────────────────────────────
+  function saveGateway(v) { localStorage.setItem(GW_KEY, v.trim()); }
+
+  function timeoutSignal(ms) {
+    return typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+      ? AbortSignal.timeout(ms)
+      : undefined;
+  }
+
+  function fetchOptionsWithTimeout(ms, options = {}) {
+    const signal = timeoutSignal(ms);
+    return signal ? { ...options, signal } : options;
+  }
+
+  async function probe() {
+    const url = (document.getElementById('gw-url').value || '').trim();
+    if (!url) { setGwStatus(false, 'Enter a gateway URL first.'); return; }
+    try {
+      const r = await fetch(url + '/api/worlds', fetchOptionsWithTimeout(3000));
+      if (r.ok) {
+        const data = await r.json();
+        setGwStatus(true, `Connected — ${data.worlds?.length ?? 0} world(s) live`);
+        renderWorlds(data.worlds || []);
+        loadFrontier(url);
+        loadNodeStatus(url);
+      } else {
+        setGwStatus(false, `Gateway returned ${r.status}.`);
+      }
+    } catch(e) {
+      setGwStatus(false, 'Could not reach gateway: ' + e.message);
+    }
+  }
+
+  function setGwStatus(live, msg) {
+    gwLive = live;
+    document.getElementById('gw-dot').className = 'status-dot' + (live ? ' live' : '');
+    document.getElementById('gw-status').innerHTML = live
+      ? msg
+      : msg + ' <a href="#self-host" style="color:var(--accent)">Run your node ↓</a>';
+    document.getElementById('ns-gw').textContent = live ? 'live' : 'offline';
+    document.getElementById('ns-gw').style.color = live ? 'var(--accent)' : 'var(--muted)';
+  }
+
+  async function loadNodeStatus(url) {
+    try {
+      const r = await fetch(url + '/status', fetchOptionsWithTimeout(3000));
+      if (!r.ok) return;
+      const s = await r.json();
+      document.getElementById('ns-gpu').textContent =
+        s.gpu?.adapter || (s.pu_kinds?.includes('gpu') ? 'available' : 'none');
+      document.getElementById('ns-relay').textContent = s.relay_mailbox || '–';
+    } catch(_) {}
+  }
+
+  // ── worlds ────────────────────────────────────────────────────────────────
+  const DEMO_WORLDS = [
+    { name: 'Earth', id: 'earth', registered: 8_100_000_000,
+      expected_births: 140_000_000, max_vote_supply: 8_240_000_000, issued: 7_900_000_000 },
+    { name: 'Moon',  id: 'moon',  registered: 1_200,
+      expected_births: 0, max_vote_supply: 1_200, issued: 1_180 },
+    { name: 'Mars (planned)', id: 'mars', registered: 0,
+      expected_births: 0, max_vote_supply: 0, issued: 0 }
+  ];
+
+  function fmtN(n) {
+    if (n >= 1e9) return (n/1e9).toFixed(2) + 'B';
+    if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+    return String(n);
+  }
+
+  function renderWorlds(worlds) {
+    const grid = document.getElementById('worlds-grid');
+    grid.innerHTML = '';
+    worlds.forEach(w => {
+      const pct = w.max_vote_supply > 0
+        ? Math.min(100, w.issued / w.max_vote_supply * 100) : 0;
+      const el = document.createElement('article');
+      el.className = 'world-card' + (w.registered > 0 ? ' live' : '');
+      el.innerHTML = `
+        <p class="world-name">${w.name}</p>
+        <div class="world-stat"><span class="world-stat-label">Registered</span>
+          <span class="world-stat-value">${fmtN(w.registered)}</span></div>
+        <div class="world-stat"><span class="world-stat-label">Expected births</span>
+          <span class="world-stat-value">${fmtN(w.expected_births)}</span></div>
+        <div class="world-stat"><span class="world-stat-label">Max vote supply</span>
+          <span class="world-stat-value">${fmtN(w.max_vote_supply)}</span></div>
+        <div class="world-bar-wrap">
+          <div class="world-bar" style="width:${pct.toFixed(1)}%"></div>
+        </div>
+        <div class="world-stat"><span class="world-stat-label">Issued</span>
+          <span class="world-stat-value">${fmtN(w.issued || 0)} (${pct.toFixed(1)}%)</span></div>`;
+      grid.appendChild(el);
+    });
+  }
+
+  // ── settlement ─────────────────────────────────────────────────────────────
+  async function submitSettle() {
+    const kind   = document.getElementById('settle-kind').value;
+    const world  = document.getElementById('settle-world').value;
+    const amount = parseInt(document.getElementById('settle-amount').value, 10);
+    const symbol = (document.getElementById('settle-symbol').value || 'PLS').trim();
+    const el = document.getElementById('settle-result');
+    el.className = 'settle-result';
+
+    if (!Number.isInteger(amount) || amount <= 0) {
+      el.textContent = 'Error: amount must be a positive integer (floats rejected at seam #4).';
+      el.className = 'settle-result err'; return;
+    }
+
+    const order = { kind, world, amount, symbol, beat: 0 };
+    const gwUrl = (document.getElementById('gw-url').value || '').trim();
+
+    if (gwUrl && gwLive) {
+      try {
+        const r = await fetch(gwUrl + '/api/govern/settle', fetchOptionsWithTimeout(5000, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(order)
+        }));
+        const data = await r.json();
+        el.textContent = JSON.stringify(data, null, 2);
+        el.className = 'settle-result ' + (r.ok ? 'ok' : 'err');
+        return;
+      } catch(e) {
+        el.textContent = 'Gateway error: ' + e.message;
+        el.className = 'settle-result err'; return;
+      }
+    }
+
+    // Offline preview — what SettlementOrder record would look like
+    el.textContent = JSON.stringify({
+      kind: order.kind, amount: order.amount, symbol: order.symbol,
+      beat: order.beat, world: order.world,
+      _preview: true, _note: 'Connect a gateway to execute a real dual-signed Knit'
+    }, null, 2);
+    el.className = 'settle-result ok';
+  }
+
+  // ── quantum frontier ───────────────────────────────────────────────────────
+  const DEMO_FRONTIER = [
+    { label: 'Circuit',     value: 'secp256k1-point-add' },
+    { label: 'Score',       value: '1,582,755,898' },
+    { label: 'Toffoli',     value: '1,365,622' },
+    { label: 'Qubits',      value: '1,159' },
+    { label: 'Commit',      value: '4a90d04' },
+    { label: 'vs baseline', value: '6.8× better' }
+  ];
+
+  function renderFrontier(stats) {
+    const row = document.getElementById('frontier-row');
+    row.innerHTML = '';
+    stats.forEach(s => {
+      const el = document.createElement('div');
+      el.className = 'f-stat';
+      el.innerHTML = `<div class="f-label">${s.label}</div><div class="f-val">${s.value}</div>`;
+      row.appendChild(el);
+    });
+  }
+
+  async function loadFrontier(gwUrl) {
+    try {
+      const r = await fetch(gwUrl + '/api/quantum/frontier', fetchOptionsWithTimeout(3000));
+      if (r.ok) { const d = await r.json(); renderFrontier(d.frontier || d); return; }
+    } catch(_) {}
+    renderFrontier(DEMO_FRONTIER);
+  }
+
+  // ── OS tabs ────────────────────────────────────────────────────────────────
+  function showOS(id, btn) {
+    document.querySelectorAll('.os-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.os-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('os-' + id).classList.add('active');
+    btn.classList.add('active');
+  }
+
+  // ── compute: PU catalogue ─────────────────────────────────────────────────
+  //
+  // Each entry describes:
+  //   check()  — async fn → bool (true = ready to use)
+  //   creds[]  — credential fields to show when expanded; empty = no credentials needed
+  //   desc     — one-sentence explanation of what this PU does in WNW
+  //   req      — browser/OS/account requirement (shown when no creds needed)
+  //   link     — { text, url } for "get credentials" button; null if not applicable
+  //
+  const PU_CFG = {
+    gpu: {
+      label:   'GPU (WebGPU)',
+      cls:     'gpu',
+      rowCls:  'gpu-row',
+      check:   _gpuAvailable,
+      desc:    'Runs the WGSL raymarcher and hash-workload PoUW proof natively in your browser. No account needed — requires a WebGPU-capable browser and GPU driver.',
+      req:     'Chrome 113+ · Edge 113+ · Firefox Nightly · macOS Metal · Linux Vulkan · Windows DX12',
+      creds:   [],
+      link:    null,
+    },
+    tpu: {
+      label:   'TPU (Google Cloud)',
+      cls:     'tpu',
+      rowCls:  'tpu-row',
+      check:   () => !!_cfg('GCP_TOKEN'),
+      desc:    'Proves access to a Google Cloud TPU v3/v4/v5 instance via the Cloud TPU REST API. The proof records available runtime versions as work result — no TPU VM is provisioned or billed.',
+      req:     null,
+      creds: [
+        {
+          key:         'GCP_TOKEN',
+          label:       'OAuth access token',
+          type:        'password',
+          placeholder: 'ya29.a0AfB_by…',
+          hint:        'Expires every 60 min. Refresh: gcloud auth print-access-token',
+        },
+        {
+          key:         'GCP_PROJECT',
+          label:       'GCP project ID',
+          type:        'text',
+          placeholder: 'my-project-123456',
+          hint:        'Found in console.cloud.google.com → project selector.',
+        },
+        {
+          key:         'GCP_ZONE',
+          label:       'TPU zone (optional)',
+          type:        'text',
+          placeholder: 'us-central1-b',
+          hint:        'Default: us-central1-b. Must be a zone where your project has TPU quota.',
+        },
+      ],
+      link: { text: 'GCP credentials →', url: 'https://console.cloud.google.com/apis/credentials' },
+    },
+    'qpu-ibm': {
+      label:   'QPU — IBM Quantum',
+      cls:     'qpu',
+      rowCls:  'qpu-row',
+      check:   () => !!_cfg('IBMQ_APIKEY'),
+      desc:    'Submits a 5-qubit GHZ circuit to IBM Quantum via the Sampler primitive (Qiskit Runtime REST API). The dominant bitstring from shot results is used as the proof work_result.',
+      req:     null,
+      creds: [
+        {
+          key:         'IBMQ_APIKEY',
+          label:       'IBM Cloud API key',
+          type:        'password',
+          placeholder: 'AbCdEfGhIjKlMnOpQrStUvWxYz01234567890123',
+          hint:        'Create at cloud.ibm.com → IAM → API keys. Free plan: 10 min/month on shared queue.',
+        },
+        {
+          key:         'IBMQ_BACKEND',
+          label:       'Backend (optional)',
+          type:        'text',
+          placeholder: 'ibm_brisbane',
+          hint:        'Default: ibm_brisbane (127 qubits). Others: ibm_kyoto, ibm_osaka. See IBM Quantum Network for available systems.',
+        },
+        {
+          key:         'IBMQ_CRN',
+          label:       'Instance CRN (optional)',
+          type:        'text',
+          placeholder: 'crn:v1:bluemix:public:quantum-computing:us-east:…',
+          hint:        'Required for premium (paid) instances only. Leave empty for free-tier access.',
+        },
+      ],
+      link: { text: 'Create IBM Cloud API key →', url: 'https://cloud.ibm.com/iam/apikeys' },
+    },
+    'qpu-dwave': {
+      label:   'QPU — D-Wave Advantage',
+      cls:     'qpu',
+      rowCls:  'qpu-row',
+      check:   () => !!_cfg('DWAVE_API_TOKEN'),
+      desc:    'Submits a binary QUBO problem to D-Wave Advantage via SAPI v2. The lowest-energy sample (annealing result) is recorded as the proof work_result. Free Leap trial: 1 min/month on Advantage.',
+      req:     null,
+      creds: [
+        {
+          key:         'DWAVE_API_TOKEN',
+          label:       'Leap API token',
+          type:        'password',
+          placeholder: 'DEV-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+          hint:        'Found in cloud.dwavesys.com/leap → Dashboard → API Token. Starts with DEV-.',
+        },
+        {
+          key:         'DWAVE_SOLVER',
+          label:       'Solver (optional)',
+          type:        'text',
+          placeholder: 'Advantage_system6.4',
+          hint:        'Default: Advantage_system6.4 (5000+ qubits). Check your Leap dashboard for solvers available in your region.',
+        },
+        {
+          key:         'DWAVE_BASE_URL',
+          label:       'SAPI base URL (optional)',
+          type:        'text',
+          placeholder: 'https://cloud.dwavesys.com',
+          hint:        'Default: https://cloud.dwavesys.com. Change only for an on-premises SAPI installation.',
+        },
+      ],
+      link: { text: 'Get Leap API token →', url: 'https://cloud.dwavesys.com/leap/' },
+    },
+    cpu: {
+      label:   'CPU (Web Crypto)',
+      cls:     'cpu',
+      rowCls:  '',
+      check:   () => true,
+      desc:    'Always available fallback. Uses the browser\'s built-in Web Crypto API (SHA-256) to produce a proof-of-useful-work — no GPU driver, no account, no credentials.',
+      req:     'All modern browsers — Chrome, Firefox, Safari, Edge. No setup needed.',
+      creds:   [],
+      link:    null,
+    },
+  };
+
+  function _cfg(key) { return localStorage.getItem('wnw_config_' + key) || ''; }
+  function _setCfg(key, val) {
+    if (val) localStorage.setItem('wnw_config_' + key, val);
+    else localStorage.removeItem('wnw_config_' + key);
+  }
+
+  async function _gpuAvailable() {
+    if (!navigator.gpu) return false;
+    try { return !!(await navigator.gpu.requestAdapter()); } catch(_) { return false; }
+  }
+
+  // Build a PU row + its collapsible credential panel
+  function _buildPUEntry(kind, cfg, ok) {
+    const wrap = document.createElement('div');
+    wrap.className = 'pu-wrap';
+    wrap.id = 'pu-wrap-' + kind;
+
+    // ── status row (clickable header) ──────────────────────
+    const row = document.createElement('div');
+    row.className = 'pu-row' + (ok && cfg.rowCls ? ' ' + cfg.rowCls : '');
+    row.id = 'pu-row-' + kind;
+    row.setAttribute('role', 'button');
+    row.setAttribute('aria-expanded', 'false');
+    row.title = cfg.creds.length || !ok ? 'Click for setup details' : 'Click for info';
+    row.onclick = () => _togglePU(kind);
+    row.innerHTML = `
+      <span class="pu-dot ${ok ? 'on ' + cfg.cls : 'off'}" id="pu-dot-${kind}"></span>
+      <span class="pu-name">${cfg.label}</span>
+      <span class="pu-tag" id="pu-tag-${kind}">${ok ? 'available' : 'not configured'}</span>
+      <span class="pu-toggle-hint">▾ info</span>`;
+    wrap.appendChild(row);
+
+    // ── expandable credential panel ────────────────────────
+    const panel = document.createElement('div');
+    panel.className = 'pu-creds';
+    panel.id = 'pu-creds-' + kind;
+    panel.setAttribute('aria-hidden', 'true');
+
+    let inner = `<p class="pu-creds-desc">${cfg.desc}</p>`;
+
+    if (cfg.req) {
+      // No credentials needed — just show requirement info
+      inner += `<span class="pu-req-tag">${cfg.req}</span>`;
+      if (kind === 'gpu' && !ok) {
+        inner += `<p class="pu-field-hint" style="margin-top:8px;color:#f87171">
+          WebGPU not detected in this browser. Try <strong>Chrome 113+</strong> or
+          <strong>Edge 113+</strong>.<br>
+          Linux: <code>sudo apt install mesa-vulkan-drivers</code> then restart Chrome.</p>`;
+      }
+    } else {
+      // Credential fields
+      cfg.creds.forEach(f => {
+        const saved = _cfg(f.key);
+        inner += `
+          <label class="pu-field-label" for="pu-input-${f.key}">${f.label}</label>
+          <input class="pu-cred-input" id="pu-input-${f.key}" type="${f.type}"
+            placeholder="${f.placeholder}" value="${saved ? (f.type === 'password' ? '' : saved) : ''}"
+            data-key="${f.key}" autocomplete="off" spellcheck="false">
+          ${f.hint ? `<p class="pu-field-hint">${f.hint}</p>` : ''}`;
+      });
+      inner += `<div class="pu-creds-btns">
+        <button class="pu-save-btn" onclick="_savePU('${kind}')">Save credentials</button>
+        <button class="pu-clear-btn" onclick="_clearPU('${kind}')">Clear</button>
+      </div>
+      <p class="pu-saved-msg" id="pu-saved-${kind}">Saved — status updated.</p>`;
+      if (cfg.link) {
+        inner += `<a class="pu-creds-link" href="${cfg.link.url}" target="_blank" rel="noopener">
+          ${cfg.link.text}</a>`;
+      }
+    }
+
+    panel.innerHTML = inner;
+    wrap.appendChild(panel);
+    return wrap;
+  }
+
+  async function renderPUs() {
+    const list = document.getElementById('pu-list');
+    list.innerHTML = '';
+    for (const [kind, cfg] of Object.entries(PU_CFG)) {
+      const ok = await cfg.check();
+      list.appendChild(_buildPUEntry(kind, cfg, ok));
+    }
+  }
+
+  function _togglePU(kind) {
+    const panel = document.getElementById('pu-creds-' + kind);
+    const row   = document.getElementById('pu-row-'   + kind);
+    const open  = panel.classList.toggle('open');
+    row.classList.toggle('open', open);
+    row.setAttribute('aria-expanded', String(open));
+    panel.setAttribute('aria-hidden', String(!open));
+  }
+
+  async function _savePU(kind) {
+    const cfg = PU_CFG[kind];
+    cfg.creds.forEach(f => {
+      const inp = document.getElementById('pu-input-' + f.key);
+      if (inp) _setCfg(f.key, inp.value.trim());
+    });
+    // Re-check availability and update dot + tag
+    const ok = await cfg.check();
+    const dot = document.getElementById('pu-dot-' + kind);
+    const tag = document.getElementById('pu-tag-' + kind);
+    const row = document.getElementById('pu-row-'  + kind);
+    if (dot) {
+      dot.className = 'pu-dot ' + (ok ? 'on ' + cfg.cls : 'off');
+    }
+    if (tag) tag.textContent = ok ? 'available' : 'not configured';
+    if (row && cfg.rowCls) row.classList.toggle(cfg.rowCls, ok);
+    const msg = document.getElementById('pu-saved-' + kind);
+    if (msg) { msg.style.display = 'block'; setTimeout(() => msg.style.display = 'none', 2500); }
+  }
+
+  function _clearPU(kind) {
+    const cfg = PU_CFG[kind];
+    cfg.creds.forEach(f => {
+      _setCfg(f.key, '');
+      const inp = document.getElementById('pu-input-' + f.key);
+      if (inp) inp.value = '';
+    });
+    const dot = document.getElementById('pu-dot-' + kind);
+    const tag = document.getElementById('pu-tag-' + kind);
+    const row = document.getElementById('pu-row-'  + kind);
+    if (dot) dot.className = 'pu-dot off';
+    if (tag) tag.textContent = 'not configured';
+    if (row && cfg.rowCls) row.classList.remove(cfg.rowCls);
+  }
+
+  // ── compute: proof ────────────────────────────────────────────────────────
+  async function runComputeProof() {
+    const pu  = document.getElementById('pu-select').value;
+    const out = document.getElementById('compute-proof-out');
+    const btn = document.getElementById('prove-btn');
+    btn.disabled = true; btn.textContent = 'Computing…';
+    out.textContent = `Creating ${pu} proof…`;
+    out.style.color = 'var(--accent)';
+    try {
+      const ch = _hexRand(12);
+      const proof = await _localProof(ch, pu);
+      out.textContent = JSON.stringify(proof, null, 2);
+    } catch(e) {
+      out.textContent = 'Error: ' + e.message;
+      out.style.color = '#f87171';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Create compute proof';
+    }
+  }
+
+  async function _localProof(challenge, pu) {
+    const kind = pu === 'auto' ? (await _gpuAvailable() ? 'gpu' : 'cpu') : pu;
+    if (kind === 'gpu') {
+      const adapter = await navigator.gpu?.requestAdapter?.();
+      const info = adapter ? (await (adapter.requestAdapterInfo?.() || Promise.resolve({}))) : {};
+      const gpuTag = info.device || info.vendor || 'WebGPU';
+      const wr = await _sha256hex(JSON.stringify({ challenge, gpu: gpuTag }));
+      const nonce = Date.now().toString(36);
+      return _buildProof('webgpu', 'gpu', challenge, nonce, wr);
+    }
+    if (['tpu', 'qpu-ibm', 'qpu-dwave'].includes(kind)) {
+      throw new Error(`${kind} requires credentials — use the WNW builder (wnw/examples/hello-wnw/)`);
+    }
+    const wr = await _sha256hex('cpu:' + challenge);
+    const nonce = Date.now().toString(36);
+    return _buildProof('webcrypto', 'cpu', challenge, nonce, wr);
+  }
+
+  async function _buildProof(runtime, pu_kind, challenge, nonce, work_result) {
+    const digest = await _sha256hex(JSON.stringify(
+      { runtime, pu_kind, challenge, nonce, work_result }
+    ));
+    return { runtime, pu_kind, challenge, nonce, work_result, digest };
+  }
+
+  async function _sha256hex(s) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
+  }
+
+  // ── WebGPU live raymarcher ─────────────────────────────────────────────────
+  const WGSL = `
+struct U { time: f32, scene: f32, w: f32, h: f32 }
+@group(0) @binding(0) var<uniform> u: U;
+fn sdf_sphere(p: vec3f, r: f32) -> f32 { return length(p) - r; }
+fn sdf_box(p: vec3f, b: vec3f) -> f32 {
+    let q = abs(p) - b;
+    return length(max(q, vec3f(0.))) + min(max(q.x, max(q.y, q.z)), 0.);
+}
+fn sdf_torus(p: vec3f, t: vec2f) -> f32 {
+    let q = vec2f(length(p.xz) - t.x, p.y);
+    return length(q) - t.y;
+}
+fn scene(p: vec3f) -> f32 {
+    let s = u.scene;
+    if s < 1. { return sdf_sphere(p - vec3f(0., sin(u.time)*.3, 0.), .62); }
+    if s < 2. { return sdf_box(p, vec3f(.42 + sin(u.time)*.1, .42, .42)); }
+    if s < 3. { return sdf_torus(p, vec2f(.5, .17 + sin(u.time)*.06)); }
+    return min(sdf_sphere(p - vec3f(sin(u.time*.7)*.5, cos(u.time*.5)*.4, 0.), .28),
+               sdf_sphere(p + vec3f(sin(u.time*.7)*.5, cos(u.time*.5)*.4, 0.), .28));
+}
+fn norm(p: vec3f) -> vec3f {
+    let e = .001;
+    return normalize(vec3f(scene(p+vec3f(e,0,0))-scene(p-vec3f(e,0,0)),
+                           scene(p+vec3f(0,e,0))-scene(p-vec3f(0,e,0)),
+                           scene(p+vec3f(0,0,e))-scene(p-vec3f(0,0,e))));
+}
+@vertex fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+    var p = array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));
+    return vec4f(p[vi], 0., 1.);
+}
+@fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+    let uv = (pos.xy / vec2f(u.w, u.h)) * 2. - 1.;
+    let ro = vec3f(0., 0., 2.);
+    let rd = normalize(vec3f(uv.x * (u.w/u.h), uv.y, -1.));
+    var t = 0.; var col = vec3f(.04,.07,.10);
+    for (var i = 0; i < 96; i++) {
+        let p2 = ro + rd * t;
+        let d = scene(p2);
+        if d < .001 {
+            let n = norm(p2);
+            let l = normalize(vec3f(sin(u.time*.4),1.,cos(u.time*.4)));
+            let diff = max(dot(n, l), 0.);
+            let spec = pow(max(dot(reflect(-l, n), -rd), 0.), 32.);
+            col = vec3f(.32,.78,.63) * diff + vec3f(.9,.95,1.) * spec + vec3f(.03,.05,.08);
+            break;
+        }
+        t += d; if t > 8. { break; }
+    }
+    let vig = 1. - length((pos.xy / vec2f(u.w, u.h)) - .5) * 1.2;
+    return vec4f(col * max(vig, 0.), 1.);
+}`;
+
+  let currentScene = 0;
+  let currentSpeed = 1.0;
+
+  async function initWebGPU() {
+    const canvas = document.getElementById('gpu-canvas');
+    const nameEl = document.getElementById('gpu-name');
+    const fpsEl  = document.getElementById('fps-badge');
+    if (!navigator.gpu) { showFallback(); return; }
+    try {
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) { showFallback(); return; }
+      const info = await (adapter.requestAdapterInfo?.() || Promise.resolve({}));
+      const gpuName = info.device || info.vendor || 'WebGPU GPU';
+      nameEl.textContent = gpuName;
+      document.getElementById('ns-gpu').textContent = gpuName;
+
+      const device = await adapter.requestDevice();
+      const ctx    = canvas.getContext('webgpu');
+      const fmt    = navigator.gpu.getPreferredCanvasFormat();
+      const resize = () => {
+        const w = canvas.parentElement.clientWidth;
+        const h = Math.round(w * 9/16);
+        canvas.width  = w * devicePixelRatio;
+        canvas.height = h * devicePixelRatio;
+      };
+      resize(); window.addEventListener('resize', resize);
+      ctx.configure({ device, format: fmt });
+
+      const shader = device.createShaderModule({ code: WGSL });
+      const ubuf   = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+      const bgl    = device.createBindGroupLayout({ entries: [{
+        binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: {}
+      }]});
+      const pipe   = device.createRenderPipeline({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [bgl] }),
+        vertex:   { module: shader, entryPoint: 'vs' },
+        fragment: { module: shader, entryPoint: 'fs', targets: [{ format: fmt }] }
+      });
+      const bg = device.createBindGroup({ layout: bgl, entries: [
+        { binding: 0, resource: { buffer: ubuf } }
+      ]});
+
+      let frame = 0; let lastT = performance.now(); let fpsCnt = 0;
+      const t0 = performance.now();
+
+      const render = () => {
+        const t   = (performance.now() - t0) / 1000 * currentSpeed;
+        const w   = canvas.width, h = canvas.height;
+        device.queue.writeBuffer(ubuf, 0, new Float32Array([t, currentScene, w, h]));
+        const enc = device.createCommandEncoder();
+        const rp  = enc.beginRenderPass({
+          colorAttachments: [{
+            view: ctx.getCurrentTexture().createView(),
+            loadOp: 'clear', storeOp: 'store', clearValue: {r:0,g:0,b:0,a:1}
+          }]
+        });
+        rp.setPipeline(pipe); rp.setBindGroup(0, bg); rp.draw(3); rp.end();
+        device.queue.submit([enc.finish()]);
+        frame++; fpsCnt++;
+        const now = performance.now();
+        if (now - lastT > 600) {
+          fpsEl.textContent = (fpsCnt / ((now - lastT) / 1000)).toFixed(0) + ' fps';
+          lastT = now; fpsCnt = 0;
+        }
+        requestAnimationFrame(render);
+      };
+      requestAnimationFrame(render);
+    } catch(e) { showFallback(); }
+  }
+
+  function showFallback() {
+    document.getElementById('gpu-fallback').style.display = 'flex';
+    document.getElementById('gpu-name').textContent = 'no WebGPU';
+    document.getElementById('ns-gpu').textContent = 'CPU fallback';
+  }
+
+  // ── Quantum Weft 3D sphere demo ──────────────────────────────────────────
+  const WEFT_LAYERS = [
+    { name: 'pulse vessel',        color: '#5fd0a5', r: 0,    nodes: 0  },
+    { name: 'quantum-dot anchor',  color: '#78a8ff', r: 0.52, nodes: 8  },
+    { name: 'bonded molecule ring',color: '#f4c95d', r: 0.95, nodes: 14 },
+    { name: 'frequency shell',     color: '#c084fc', r: 1.38, nodes: 22 },
+    { name: 'narrow-web fabric',   color: '#64d2ff', r: 1.80, nodes: 30 },
+    { name: 'human lens',          color: '#eef4f8', r: 2.20, nodes: 36 },
+  ];
+
+  function initWeftCanvas() {
+    const canvas = document.getElementById('weft-canvas');
+    if (!canvas) return;
+    const ctx    = canvas.getContext('2d');
+    const speedEl = document.getElementById('weft-speed');
+    const focusEl = document.getElementById('weft-focus');
+    const title   = document.getElementById('weft-hud-title');
+    const coord   = document.getElementById('weft-hud-coord');
+
+    // Camera state
+    let camPhi = 0.3, camTheta = 0.55;
+    let dragging = false, lastXY = null;
+
+    function onStart(e) {
+      dragging = true;
+      const t = e.touches?.[0] || e;
+      lastXY = { x: t.clientX, y: t.clientY };
+      canvas.style.cursor = 'grabbing';
+    }
+    function onMove(e) {
+      if (!dragging) return;
+      const t = e.touches?.[0] || e;
+      const dx = t.clientX - lastXY.x, dy = t.clientY - lastXY.y;
+      camPhi   += dx * 0.011;
+      camTheta  = Math.max(0.15, Math.min(Math.PI - 0.15, camTheta + dy * 0.011));
+      lastXY    = { x: t.clientX, y: t.clientY };
+    }
+    function onEnd() { dragging = false; canvas.style.cursor = 'grab'; }
+    canvas.addEventListener('mousedown',  onStart);
+    canvas.addEventListener('mousemove',  onMove);
+    canvas.addEventListener('mouseup',    onEnd);
+    canvas.addEventListener('mouseleave', onEnd);
+    canvas.addEventListener('touchstart', onStart, { passive: true });
+    canvas.addEventListener('touchmove',  onMove,  { passive: true });
+    canvas.addEventListener('touchend',   onEnd);
+    canvas.style.cursor = 'grab';
+
+    function resize() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width  = Math.max(320, Math.floor(rect.width  * devicePixelRatio));
+      canvas.height = Math.max(360, Math.floor(rect.height * devicePixelRatio));
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // 3-D perspective projection (camera rotates around origin)
+    function project(x, y, z) {
+      const w = canvas.width, h = canvas.height;
+      // Rotate Y (camPhi)
+      const x1 = x * Math.cos(camPhi) + z * Math.sin(camPhi);
+      const z1 = -x * Math.sin(camPhi) + z * Math.cos(camPhi);
+      // Rotate X (camTheta − π/2)
+      const st = Math.sin(camTheta - Math.PI / 2), ct = Math.cos(camTheta - Math.PI / 2);
+      const y2 = y * ct - z1 * st;
+      const z2 = y * st + z1 * ct;
+      // Perspective
+      const dz = z2 + 4.5;
+      if (dz < 0.01) return null;
+      const fov = Math.min(w, h) * 0.36;
+      return { x: w/2 + x1*fov/dz, y: h/2 - y2*fov/dz, z: z2, sc: fov/dz };
+    }
+
+    // Fibonacci sphere: n points evenly distributed on sphere of radius r
+    function fibSphere(n, r) {
+      const pts = [], g = Math.PI * (3 - Math.sqrt(5));
+      for (let i = 0; i < n; i++) {
+        const yy = 1 - (i / Math.max(1, n - 1)) * 2;
+        const rd = Math.sqrt(Math.max(0, 1 - yy*yy));
+        const th = g * i;
+        pts.push([Math.cos(th)*rd*r, yy*r, Math.sin(th)*rd*r]);
+      }
+      return pts;
+    }
+
+    // Pre-compute node positions
+    const layerPts = WEFT_LAYERS.map(l => l.nodes > 0 ? fibSphere(l.nodes, l.r) : []);
+
+    // Pulse particles
+    const pulses = [];
+    for (let i = 0; i < 20; i++) {
+      const li   = 1 + (i % 5);
+      const pts  = layerPts[li];
+      const ni   = Math.floor(Math.random() * pts.length);
+      pulses.push({
+        li, target: [...(pts[ni] || [0,0,0])],
+        t: Math.random(),
+        speed: 0.005 + Math.random() * 0.005,
+        color: WEFT_LAYERS[li].color,
+      });
+    }
+
+    // Project a 3-D circle (ring) lying in a tilted plane
+    function drawRing(r, tiltX, tiltZ, strokeCol, lw, alpha) {
+      const N = 56;
+      let first = true;
+      ctx.beginPath();
+      for (let i = 0; i <= N; i++) {
+        const a = (i / N) * Math.PI * 2;
+        let x = r * Math.cos(a), y = r * Math.sin(a), z = 0;
+        // Rotate around X
+        const ry = y * Math.cos(tiltX) - z * Math.sin(tiltX);
+        const rz = y * Math.sin(tiltX) + z * Math.cos(tiltX);
+        y = ry; z = rz;
+        // Rotate around Z
+        const rx = x * Math.cos(tiltZ) - y * Math.sin(tiltZ);
+        const ry2 = x * Math.sin(tiltZ) + y * Math.cos(tiltZ);
+        x = rx; y = ry2;
+        const p = project(x, y, z);
+        if (!p) { first = true; continue; }
+        if (first) { ctx.moveTo(p.x, p.y); first = false; }
+        else ctx.lineTo(p.x, p.y);
+      }
+      ctx.strokeStyle = strokeCol;
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = lw * devicePixelRatio;
+      ctx.stroke();
+    }
+
+    let t0 = performance.now();
+
+    function draw() {
+      const w = canvas.width, h = canvas.height;
+      const speed = Number(speedEl?.value ?? 2);
+      const focus = Number(focusEl?.value ?? 4);
+      const time  = (performance.now() - t0) / 1000;
+
+      if (!dragging) camPhi += 0.004 * (speed * 0.22 + 0.25);
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Background radial gradient
+      const bg = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, Math.max(w,h)*0.65);
+      bg.addColorStop(0, '#0f1e1a');
+      bg.addColorStop(0.5, '#06100d');
+      bg.addColorStop(1, '#020406');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+
+      // Shell orbital rings (3 rings per shell, like p-orbitals)
+      for (let li = WEFT_LAYERS.length - 1; li >= 1; li--) {
+        const l = WEFT_LAYERS[li];
+        if (!l.r) continue;
+        const isFocus = li === focus;
+        const baseA   = isFocus ? 0.40 : 0.12;
+        const lw      = isFocus ? 1.6 : 0.6;
+        for (const [tx, tz] of [[0, 0],[Math.PI/2, 0],[0, Math.PI/2]]) {
+          drawRing(l.r, tx, tz, l.color, lw, baseA * (isFocus ? 1 : 0.7));
+        }
+      }
+      ctx.globalAlpha = 1;
+
+      // Collect + depth-sort nodes
+      const nodes = [];
+      WEFT_LAYERS.forEach((l, li) => {
+        if (li === 0) return;
+        layerPts[li].forEach(pt => {
+          const p = project(pt[0], pt[1], pt[2]);
+          if (p) nodes.push({ li, l, p, pt });
+        });
+      });
+      nodes.sort((a, b) => a.p.z - b.p.z);
+
+      // Draw nodes
+      nodes.forEach(({ li, l, p }) => {
+        const isFocus = li === focus;
+        const r       = Math.max(0.5, (isFocus ? 4.2 : 2.4) * devicePixelRatio * p.sc * 0.58);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = l.color;
+        ctx.globalAlpha = 0.25 + p.sc * 0.28;
+        ctx.fill();
+        // Spoke to centre for focused shell
+        if (isFocus) {
+          const c = project(0, 0, 0);
+          if (c) {
+            ctx.beginPath();
+            ctx.moveTo(c.x, c.y); ctx.lineTo(p.x, p.y);
+            ctx.strokeStyle = l.color;
+            ctx.globalAlpha = 0.06;
+            ctx.lineWidth = 0.6 * devicePixelRatio;
+            ctx.stroke();
+          }
+        }
+      });
+      ctx.globalAlpha = 1;
+
+      // Pulse particles
+      pulses.forEach(pu => {
+        pu.t += pu.speed;
+        if (pu.t > 1) {
+          pu.t = 0;
+          const pts = layerPts[pu.li];
+          pu.target = [...(pts[Math.floor(Math.random() * pts.length)] || [0,0,0])];
+        }
+        const e = pu.t < 0.5 ? 2*pu.t*pu.t : -1+(4-2*pu.t)*pu.t;
+        const p = project(pu.target[0]*e, pu.target[1]*e, pu.target[2]*e);
+        if (p) {
+          const r = Math.max(0.4, 2.6 * devicePixelRatio * p.sc * 0.4);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          ctx.fillStyle  = pu.color;
+          ctx.globalAlpha = Math.sin(Math.PI * pu.t) * 0.88;
+          ctx.fill();
+        }
+      });
+      ctx.globalAlpha = 1;
+
+      // Centre (Shell 0 — pulse vessel)
+      const c0 = project(0, 0, 0);
+      if (c0) {
+        const cr = 5.5 * devicePixelRatio;
+        const gw = ctx.createRadialGradient(c0.x, c0.y, 0, c0.x, c0.y, cr * 3);
+        gw.addColorStop(0, '#5fd0a5cc'); gw.addColorStop(1, '#5fd0a500');
+        ctx.beginPath();
+        ctx.arc(c0.x, c0.y, cr*3, 0, Math.PI*2);
+        ctx.fillStyle = gw; ctx.globalAlpha = 0.55; ctx.fill();
+        ctx.beginPath();
+        ctx.arc(c0.x, c0.y, cr, 0, Math.PI*2);
+        ctx.fillStyle = '#5fd0a5'; ctx.globalAlpha = 0.92; ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // HUD
+      const layer = WEFT_LAYERS[focus] || WEFT_LAYERS[0];
+      const th = Math.round((((camPhi * 57.2958) % 360) + 360) % 360);
+      const ph = Math.round(camTheta * 57.2958);
+      if (title) title.textContent = layer.name;
+      if (coord) coord.textContent = `r=${focus} θ=${th}° φ=${ph}° beat=${Math.floor(time)}`;
+
+      requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+
+    // Show AR hint if WebXR available
+    if (navigator.xr) {
+      navigator.xr.isSessionSupported('immersive-ar').then(ok => {
+        const hint = document.getElementById('weft-ar-hint');
+        if (ok && hint) hint.style.display = 'inline-block';
+      }).catch(() => {});
+    }
+  }
+
+  // AR session launch from weft section
+  async function launchWeftAR() {
+    if (!navigator.xr) { alert('WebXR not available.'); return; }
+    const ok = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
+    if (!ok) {
+      alert('Immersive AR not supported on this device.\nThe canvas shows the desktop preview.\nOn AR devices the sphere anchors to your physical space.');
+      return;
+    }
+    const session = await navigator.xr.requestSession('immersive-ar',
+      { requiredFeatures: ['hit-test'], optionalFeatures: ['local-floor'] });
+    session.addEventListener('end', () => {
+      const btn = document.getElementById('weft-ar-btn');
+      if (btn) btn.textContent = 'Enter AR';
+    });
+    const btn = document.getElementById('weft-ar-btn');
+    if (btn) btn.textContent = 'AR active';
+    const onXRFrame = (_t, _frame) => session.requestAnimationFrame(onXRFrame);
+    session.requestAnimationFrame(onXRFrame);
+  }
+
+  // ── init ──────────────────────────────────────────────────────────────────
+  function init() {
+    loadWallet();
+    runSpecification();
+    renderPUs();
+    renderFrontier(DEMO_FRONTIER);
+
+    const savedGw = localStorage.getItem(GW_KEY) || '';
+    if (savedGw) {
+      document.getElementById('gw-url').value = savedGw;
+      probe();
+    } else {
+      renderWorlds(DEMO_WORLDS);
+      setGwStatus(false, 'No gateway — showing demo data.');
+    }
+
+    initWebGPU();
+    initWeftCanvas();
+    loadBacklog();
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  // ── Live backlog from GitHub ─────────────────────────────────────────────
+  const GH_ISSUES_URL =
+    'https://api.github.com/repos/Knitweb/pulse/issues' +
+    '?labels=wnw&state=all&per_page=40&sort=created&direction=asc';
+
+  const PRIO_COLORS = { P0:'#d73a4a', P1:'#e4e669', P2:'#0075ca', P3:'#8b5cf6' };
+
+  let _blData  = [];
+  let _blFilter = 'all';
+
+  async function loadBacklog(force = false) {
+    const cacheKey = 'wnw_backlog_cache';
+    const cacheTs  = 'wnw_backlog_ts';
+    const CACHE_TTL = 5 * 60 * 1000; // 5 min
+
+    if (!force) {
+      const ts = +localStorage.getItem(cacheTs);
+      if (ts && Date.now() - ts < CACHE_TTL) {
+        try {
+          _blData = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+          if (_blData.length) { renderBacklog(); return; }
+        } catch(_) {}
+      }
+    }
+
+    document.getElementById('bl-meta').textContent = 'Fetching…';
+    try {
+      const r = await fetch(GH_ISSUES_URL, {
+        headers: { Accept: 'application/vnd.github+json' }
+      });
+      if (!r.ok) throw new Error('GitHub API ' + r.status);
+      _blData = await r.json();
+      localStorage.setItem(cacheKey, JSON.stringify(_blData));
+      localStorage.setItem(cacheTs, String(Date.now()));
+    } catch(e) {
+      renderBacklog();
+      document.getElementById('bl-meta').textContent = 'GitHub API unavailable — showing cached data.';
+      return;
+    }
+    renderBacklog();
+  }
+
+  function _prio(issue) {
+    const labels = (issue.labels || []).map(l => l.name);
+    for (const p of ['P0','P1','P2','P3']) if (labels.includes(p)) return p;
+    return '—';
+  }
+
+  function filterBacklog(filter, btn) {
+    _blFilter = filter;
+    document.querySelectorAll('#backlog .scope-chip').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    renderBacklog();
+  }
+
+  function _esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renderBacklog() {
+    const grid = document.getElementById('bl-grid');
+    const meta = document.getElementById('bl-meta');
+    if (!_blData.length) {
+      grid.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:12px 0">No issues found. <a href="https://github.com/Knitweb/pulse/issues?q=label%3Awnw" target="_blank" style="color:var(--accent)">View on GitHub ↗</a></div>';
+      return;
+    }
+
+    const visible = _blData.filter(i => {
+      if (_blFilter === 'all')    return true;
+      if (_blFilter === 'open')   return i.state === 'open';
+      if (_blFilter === 'closed') return i.state === 'closed';
+      return _prio(i) === _blFilter;
+    });
+
+    const open   = _blData.filter(i => i.state === 'open').length;
+    const closed = _blData.filter(i => i.state === 'closed').length;
+    meta.textContent = `${open} open · ${closed} done · updated just now`;
+
+    if (!visible.length) {
+      grid.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:12px 0">No items match this filter.</div>';
+      return;
+    }
+
+    grid.innerHTML = '';
+    visible.forEach(issue => {
+      const prio  = _prio(issue);
+      const pCol  = PRIO_COLORS[prio] || 'var(--muted)';
+      const done  = issue.state === 'closed';
+      const num   = issue.number;
+      // Extract title without "[WNW] " prefix
+      const title = issue.title.replace(/^\[WNW\]\s*/i, '');
+      // First sentence of body as description
+      const bodyLines = (issue.body || '').split('\n');
+      const defIdx = bodyLines.findIndex(l => l.startsWith('##') && l.toLowerCase().includes('definition'));
+      const dod = defIdx !== -1
+        ? (bodyLines.slice(defIdx + 1).find(l => l.trim() !== '') || '').replace(/^[-*]\s*/, '')
+        : '';
+
+      const card = document.createElement('div');
+      card.className = 'backlog-item';
+      card.style.opacity = done ? '0.55' : '1';
+      card.style.borderColor = done ? 'var(--line)' : '';
+      card.innerHTML = `
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <span class="prio" style="color:${pCol};margin:0">${prio}</span>
+          <span style="font-size:10px;color:${done?'#10b981':'var(--muted)'}">
+            ${done ? '✓ closed' : '● open'}
+          </span>
+          <a href="${issue.html_url}" target="_blank" rel="noopener"
+             style="margin-left:auto;font-size:10px;color:var(--accent-2);text-decoration:none">
+            #${num} ↗
+          </a>
+        </div>
+        <h3 style="${done?'text-decoration:line-through;color:var(--muted)':''}">${_esc(title)}</h3>
+        ${dod ? `<p style="margin-top:4px">${_esc(dod)}</p>` : ''}
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px">
+          ${(issue.labels||[]).filter(l=>l.name!=='wnw').map(l=>
+            `<span style="font-size:9px;padding:1px 6px;border-radius:3px;border:1px solid #${l.color}44;color:#${l.color}">${_esc(l.name)}</span>`
+          ).join('')}
+        </div>`;
+      grid.appendChild(card);
+    });
+  }
+
+  </script>
+</body>
+</html>
