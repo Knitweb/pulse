@@ -321,6 +321,24 @@
       font-size: 11px; color: var(--muted);
     }
     .weft-hud strong { color: var(--accent); font-size: 13px; }
+    .weft-detail-card {
+      position: absolute; left: 12px; bottom: 12px; display: none; gap: 8px;
+      width: min(330px, calc(100% - 24px)); padding: 12px;
+      border: 1px solid rgba(120,168,255,.48); border-radius: 8px;
+      background: rgba(8,12,16,.88); backdrop-filter: blur(12px);
+      box-shadow: 0 14px 40px rgba(0,0,0,.28);
+      font-size: 12px; color: var(--muted);
+    }
+    .weft-detail-card[data-open="true"] { display: grid; }
+    .weft-detail-head {
+      display: flex; justify-content: space-between; gap: 10px; align-items: center;
+    }
+    .weft-detail-head strong { color: var(--ink); font-size: 14px; }
+    .weft-detail-head button {
+      width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 6px;
+      background: var(--panel-2); color: var(--muted); cursor: pointer;
+    }
+    .weft-detail-card p { margin: 0; }
     .layer-stack { display: grid; gap: 10px; }
     .layer-card {
       display: grid; grid-template-columns: auto minmax(0,1fr); gap: 10px;
@@ -685,6 +703,7 @@
             <strong id="weft-hud-title">pulse vessel</strong>
             <span id="weft-hud-coord">r=0 θ=0° φ=0° beat=0</span>
             <span>Drag to rotate · traverse 360° · inspect shells.</span>
+            <span id="weft-ar-status">canvas fallback ready</span>
             <span id="weft-ar-hint" style="display:none;margin-top:4px">
               <button id="weft-ar-btn" onclick="launchWeftAR()"
                 style="padding:4px 10px;border:1px solid var(--accent-2);border-radius:4px;
@@ -692,6 +711,18 @@
                 ⬡ Enter AR
               </button>
             </span>
+          </div>
+          <div class="weft-detail-card" id="weft-detail-card" data-open="false" role="dialog" aria-live="polite">
+            <div class="weft-detail-head">
+              <strong id="weft-detail-title">shell detail</strong>
+              <button type="button" aria-label="Close detail" onclick="closeWeftDetail()">×</button>
+            </div>
+            <p id="weft-detail-body">Select a shell node to inspect its WNW coordinate.</p>
+            <table class="mini-table" aria-label="Selected weft coordinate">
+              <tr><td>coordinate</td><td id="weft-detail-coord">r=0 θ=0 φ=0</td></tr>
+              <tr><td>band</td><td id="weft-detail-band">pulse</td></tr>
+              <tr><td>source</td><td id="weft-detail-source">canvas</td></tr>
+            </table>
           </div>
         </div>
         <div>
@@ -1792,6 +1823,73 @@ fn norm(p: vec3f) -> vec3f {
     { name: 'human lens',          color: '#eef4f8', r: 2.20, nodes: 36 },
   ];
 
+  const WEFT_STATE = {
+    latestNodes: [],
+    zoom: 1,
+    ar: { session: null, anchored: false, anchorMatrix: null, hitTestSource: null },
+  };
+
+  function clampWeftFocus(value) {
+    return Math.max(1, Math.min(WEFT_LAYERS.length - 1, Math.round(Number(value) || 1)));
+  }
+
+  function getWeftFocus() {
+    const focusEl = document.getElementById('weft-focus');
+    return clampWeftFocus(focusEl?.value ?? 4);
+  }
+
+  function setWeftFocus(value) {
+    const focus = clampWeftFocus(value);
+    const focusEl = document.getElementById('weft-focus');
+    if (focusEl) focusEl.value = String(focus);
+    return focus;
+  }
+
+  function setWeftARStatus(message) {
+    const status = document.getElementById('weft-ar-status');
+    if (status) status.textContent = message;
+  }
+
+  function activeWeftNode() {
+    const focus = getWeftFocus();
+    const focused = WEFT_STATE.latestNodes
+      .filter(n => n.li === focus)
+      .sort((a, b) => b.p.sc - a.p.sc);
+    return focused[0] || WEFT_STATE.latestNodes[0] || {
+      li: focus, ni: 0, l: WEFT_LAYERS[focus], p: { sc: 1 }, theta: 0, phi: 0,
+    };
+  }
+
+  function closeWeftDetail() {
+    const card = document.getElementById('weft-detail-card');
+    if (card) card.dataset.open = 'false';
+  }
+
+  function openWeftDetail(node, source = 'canvas') {
+    if (!node) return;
+    const layer = node.l || WEFT_LAYERS[node.li] || WEFT_LAYERS[0];
+    const title = document.getElementById('weft-detail-title');
+    const body = document.getElementById('weft-detail-body');
+    const coord = document.getElementById('weft-detail-coord');
+    const band = document.getElementById('weft-detail-band');
+    const sourceEl = document.getElementById('weft-detail-source');
+    const card = document.getElementById('weft-detail-card');
+    if (title) title.textContent = `${layer.name} · node ${node.ni ?? 0}`;
+    if (body) body.textContent =
+      `Fact-table detail card anchored to ${layer.name}; accept, refine, or query from the narrow-web fabric.`;
+    if (coord) coord.textContent =
+      `r=${node.li ?? 0} θ=${node.theta ?? 0} φ=${node.phi ?? 0} beat=${Math.floor(performance.now()/1000)}`;
+    if (band) band.textContent = layer.name;
+    if (sourceEl) sourceEl.textContent = source;
+    if (card) card.dataset.open = 'true';
+  }
+
+  function zoomWeftShell(delta = 1) {
+    const focus = setWeftFocus(getWeftFocus() + delta);
+    setWeftARStatus(`shell ${focus} zoomed · focus ring active`);
+    openWeftDetail(activeWeftNode(), 'pinch zoom');
+  }
+
   function initWeftCanvas() {
     const canvas = document.getElementById('weft-canvas');
     if (!canvas) return;
@@ -1803,15 +1901,34 @@ fn norm(p: vec3f) -> vec3f {
 
     // Camera state
     let camPhi = 0.3, camTheta = 0.55;
-    let dragging = false, lastXY = null;
+    let dragging = false, lastXY = null, pinchStart = null;
+
+    function touchDistance(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.hypot(dx, dy);
+    }
 
     function onStart(e) {
+      if (e.touches?.length === 2) {
+        dragging = false;
+        pinchStart = { dist: touchDistance(e.touches), focus: getWeftFocus() };
+        return;
+      }
       dragging = true;
       const t = e.touches?.[0] || e;
       lastXY = { x: t.clientX, y: t.clientY };
       canvas.style.cursor = 'grabbing';
     }
     function onMove(e) {
+      if (e.touches?.length === 2 && pinchStart) {
+        if (e.cancelable) e.preventDefault();
+        const dist = touchDistance(e.touches);
+        const steps = Math.round((pinchStart.dist - dist) / 44);
+        setWeftFocus(pinchStart.focus + steps);
+        setWeftARStatus(`pinch focus shell ${getWeftFocus()}`);
+        return;
+      }
       if (!dragging) return;
       const t = e.touches?.[0] || e;
       const dx = t.clientX - lastXY.x, dy = t.clientY - lastXY.y;
@@ -1819,13 +1936,28 @@ fn norm(p: vec3f) -> vec3f {
       camTheta  = Math.max(0.15, Math.min(Math.PI - 0.15, camTheta + dy * 0.011));
       lastXY    = { x: t.clientX, y: t.clientY };
     }
-    function onEnd() { dragging = false; canvas.style.cursor = 'grab'; }
+    function onEnd() { dragging = false; pinchStart = null; canvas.style.cursor = 'grab'; }
+    function onTap(e) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * devicePixelRatio;
+      const y = (e.clientY - rect.top) * devicePixelRatio;
+      let best = null, bestD = Infinity;
+      for (const node of WEFT_STATE.latestNodes) {
+        const d = Math.hypot(node.p.x - x, node.p.y - y);
+        if (d < bestD) { best = node; bestD = d; }
+      }
+      if (best && bestD <= 34 * devicePixelRatio) {
+        setWeftFocus(best.li);
+        openWeftDetail(best, 'canvas tap');
+      }
+    }
     canvas.addEventListener('mousedown',  onStart);
     canvas.addEventListener('mousemove',  onMove);
     canvas.addEventListener('mouseup',    onEnd);
     canvas.addEventListener('mouseleave', onEnd);
+    canvas.addEventListener('click',      onTap);
     canvas.addEventListener('touchstart', onStart, { passive: true });
-    canvas.addEventListener('touchmove',  onMove,  { passive: true });
+    canvas.addEventListener('touchmove',  onMove,  { passive: false });
     canvas.addEventListener('touchend',   onEnd);
     canvas.style.cursor = 'grab';
 
@@ -1850,7 +1982,7 @@ fn norm(p: vec3f) -> vec3f {
       // Perspective
       const dz = z2 + 4.5;
       if (dz < 0.01) return null;
-      const fov = Math.min(w, h) * 0.36;
+      const fov = Math.min(w, h) * 0.36 * WEFT_STATE.zoom;
       return { x: w/2 + x1*fov/dz, y: h/2 - y2*fov/dz, z: z2, sc: fov/dz };
     }
 
@@ -1868,6 +2000,13 @@ fn norm(p: vec3f) -> vec3f {
 
     // Pre-compute node positions
     const layerPts = WEFT_LAYERS.map(l => l.nodes > 0 ? fibSphere(l.nodes, l.r) : []);
+
+    function nodeAngles(pt) {
+      const theta = Math.round(((Math.atan2(pt[2], pt[0]) * 180 / Math.PI) + 360) % 360);
+      const hyp = Math.hypot(pt[0], pt[2]);
+      const phi = Math.round((Math.atan2(pt[1], hyp) * 180 / Math.PI) + 90);
+      return { theta, phi };
+    }
 
     // Pulse particles
     const pulses = [];
@@ -1917,6 +2056,7 @@ fn norm(p: vec3f) -> vec3f {
       const speed = Number(speedEl?.value ?? 2);
       const focus = Number(focusEl?.value ?? 4);
       const time  = (performance.now() - t0) / 1000;
+      WEFT_STATE.zoom = Math.max(1, 1 + focus * 0.07);
 
       if (!dragging) camPhi += 0.004 * (speed * 0.22 + 0.25);
 
@@ -1947,12 +2087,13 @@ fn norm(p: vec3f) -> vec3f {
       const nodes = [];
       WEFT_LAYERS.forEach((l, li) => {
         if (li === 0) return;
-        layerPts[li].forEach(pt => {
+        layerPts[li].forEach((pt, ni) => {
           const p = project(pt[0], pt[1], pt[2]);
-          if (p) nodes.push({ li, l, p, pt });
+          if (p) nodes.push({ li, ni, l, p, pt, ...nodeAngles(pt) });
         });
       });
       nodes.sort((a, b) => a.p.z - b.p.z);
+      WEFT_STATE.latestNodes = nodes;
 
       // Draw nodes
       nodes.forEach(({ li, l, p }) => {
@@ -2036,21 +2177,73 @@ fn norm(p: vec3f) -> vec3f {
 
   // AR session launch from weft section
   async function launchWeftAR() {
-    if (!navigator.xr) { alert('WebXR not available.'); return; }
+    if (!navigator.xr) {
+      setWeftARStatus('WebXR unavailable · canvas fallback active');
+      alert('WebXR not available. The canvas demo remains active.');
+      return;
+    }
     const ok = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
     if (!ok) {
+      setWeftARStatus('AR unsupported · canvas fallback active');
       alert('Immersive AR not supported on this device.\nThe canvas shows the desktop preview.\nOn AR devices the sphere anchors to your physical space.');
       return;
     }
-    const session = await navigator.xr.requestSession('immersive-ar',
-      { requiredFeatures: ['hit-test'], optionalFeatures: ['local-floor'] });
+    let session;
+    try {
+      session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['local-floor', 'dom-overlay'],
+        domOverlay: { root: document.body },
+      });
+    } catch (err) {
+      setWeftARStatus('AR session failed · canvas fallback active');
+      alert('Unable to start immersive AR.\nThe canvas demo remains active.');
+      return;
+    }
+    WEFT_STATE.ar.session = session;
+    WEFT_STATE.ar.anchored = false;
+    WEFT_STATE.ar.anchorMatrix = null;
+    session.addEventListener('select', () => {
+      openWeftDetail(activeWeftNode(), 'XR select');
+    });
+    session.addEventListener('squeeze', () => {
+      zoomWeftShell(1);
+    });
     session.addEventListener('end', () => {
+      if (WEFT_STATE.ar.hitTestSource?.cancel) WEFT_STATE.ar.hitTestSource.cancel();
+      WEFT_STATE.ar = { session: null, anchored: false, anchorMatrix: null, hitTestSource: null };
+      setWeftARStatus('AR ended · canvas fallback active');
       const btn = document.getElementById('weft-ar-btn');
       if (btn) btn.textContent = 'Enter AR';
     });
     const btn = document.getElementById('weft-ar-btn');
     if (btn) btn.textContent = 'AR active';
-    const onXRFrame = (_t, _frame) => session.requestAnimationFrame(onXRFrame);
+    setWeftARStatus('AR scanning for a surface');
+    let refSpace, viewerSpace, hitTestSource;
+    try {
+      refSpace = await session.requestReferenceSpace('local-floor')
+        .catch(() => session.requestReferenceSpace('local'));
+      viewerSpace = await session.requestReferenceSpace('viewer');
+      hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+    } catch (err) {
+      setWeftARStatus('AR hit-test unavailable · canvas fallback active');
+      await session.end().catch(() => {});
+      return;
+    }
+    WEFT_STATE.ar.hitTestSource = hitTestSource;
+    const onXRFrame = (_time, frame) => {
+      const hits = frame.getHitTestResults(hitTestSource);
+      if (!WEFT_STATE.ar.anchored && hits.length) {
+        const pose = hits[0].getPose(refSpace);
+        if (pose) {
+          WEFT_STATE.ar.anchored = true;
+          WEFT_STATE.ar.anchorMatrix = Array.from(pose.transform.matrix);
+          setWeftARStatus(`AR anchored · shell ${getWeftFocus()} focus ring active`);
+          openWeftDetail(activeWeftNode(), 'AR hit-test anchor');
+        }
+      }
+      session.requestAnimationFrame(onXRFrame);
+    };
     session.requestAnimationFrame(onXRFrame);
   }
 
