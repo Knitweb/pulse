@@ -12,6 +12,13 @@ from .specify import (
     classify_domain,
     estimate,
 )
+from .weft import (
+    WEFT_ADDRESS_BYTES,
+    WeftAddress,
+    WeftPick,
+    fibonacci_sphere,
+    relation_digest,
+)
 
 __all__ = [
     "ACCEPT_OPTIONS",
@@ -22,8 +29,13 @@ __all__ = [
     "PackedCapsule",
     "SchemaSpec",
     "SignedFactContract",
+    "WEFT_ADDRESS_BYTES",
+    "WeftAddress",
+    "WeftPick",
     "classify_domain",
     "estimate",
+    "fibonacci_sphere",
     "pack",
+    "relation_digest",
     "unpack",
 ]
