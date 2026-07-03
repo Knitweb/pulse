@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Worlds Narrow Web — Architecture Reference</title>
+  <meta name="description" content="WNW 5-seam architecture, settlement kinds, world registry, gateway API, and quantum frontier.">
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .doc-wrap {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: clamp(32px,6vw,72px) clamp(18px,5vw,48px);
+    }
+    .doc-back { font-size: 13px; color: var(--muted); text-decoration: none; }
+    .doc-back:hover { color: var(--ink); }
+    .doc-eyebrow { font-size: 11px; font-weight: 750; text-transform: uppercase;
+                   letter-spacing: .08em; color: var(--accent); margin: 28px 0 6px; }
+    h1 { font-size: clamp(28px,5vw,44px); font-weight: 800; line-height: 1.1; margin: 0 0 20px; }
+    h2 { font-size: 20px; font-weight: 750; margin: 40px 0 12px; padding-bottom: 8px;
+         border-bottom: 1px solid var(--line); }
+    h3 { font-size: 15px; font-weight: 750; margin: 28px 0 8px; color: var(--accent-2); }
+    p  { color: var(--muted); margin: 0 0 16px; font-size: 15px; line-height: 1.7; }
+    strong { color: var(--ink); }
+    code { font-family: ui-monospace, monospace; font-size: 13px;
+           background: var(--panel); padding: 2px 6px; border-radius: 3px;
+           color: var(--accent); border: 1px solid var(--line); }
+    pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+          padding: 16px 20px; overflow-x: auto; margin: 16px 0; }
+    pre code { background: none; border: none; padding: 0; font-size: 13px; color: var(--ink); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0 24px; }
+    th { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line);
+         color: var(--muted); font-size: 11px; text-transform: uppercase; font-weight: 700; }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--muted); }
+    td strong { color: var(--ink); }
+    tr:last-child td { border-bottom: none; }
+    .badge-a { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px;
+                font-weight: 700; text-transform: uppercase;
+                background: rgba(244,201,93,.13); color: var(--warn); }
+    .badge-k { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px;
+                font-weight: 700; text-transform: uppercase;
+                background: rgba(95,208,165,.13); color: var(--accent); }
+    ul, ol { margin: 0 0 16px; padding-left: 22px; }
+    li { color: var(--muted); font-size: 15px; margin-bottom: 6px; }
+    .invariant-box { border: 1px solid var(--warn); border-radius: 8px; padding: 14px 18px;
+                      background: rgba(244,201,93,.05); margin: 16px 0; }
+    .invariant-box p { color: var(--warn); margin: 0; font-size: 14px; font-weight: 600; }
+    hr { border: none; border-top: 1px solid var(--line); margin: 36px 0; }
+    .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr));
+                    gap: 12px; margin: 16px 0; }
+    .metric-card { padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px;
+                    background: var(--panel); }
+    .metric-label { font-size: 11px; color: var(--muted); text-transform: uppercase;
+                     font-weight: 700; margin: 0 0 4px; }
+    .metric-val { font-size: 18px; font-weight: 750; color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="../worlds.html">k.nitweb.art</a>
+    <nav aria-label="Primary">
+      <a href="../worlds.html">WNW dapp</a>
+      <a href="../worlds.html#worlds">Worlds</a>
+      <a href="repository-graph.html">Repo graph</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="doc-wrap">
+      <a class="doc-back" href="../worlds.html">← WNW dapp</a>
+      <p class="doc-eyebrow">Architecture reference</p>
+      <h1>Worlds Narrow Web</h1>
+      <p>The Worlds Narrow Web (WNW) is the settlement and governance layer beneath the knitweb knowledge fabric. <strong>Core principle:</strong> one vote per registered person per world. No operator can mint governance weight out of thin air.</p>
+
+      <h2>5-Seam Architecture</h2>
+      <p>The WNW separates the analytics (float) world and the knitweb (integer) world at five explicit crossing points.</p>
+      <table>
+        <thead><tr><th>#</th><th>Seam</th><th>Direction</th><th>Owner</th><th>Crossing rule</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><strong>Registry (identity)</strong></td><td>knitweb → analytics</td><td>knitweb</td><td>Subject digest only — raw PII never stored. Two paths: <code>NATIONAL</code> and <code>FREEPORT</code> (IMEI + email, for the stateless).</td></tr>
+          <tr><td>2</td><td><strong>Marks ingest</strong></td><td>knitweb → analytics</td><td>both</td><td>Integer marks become float analytics at an explicit divisor. The boundary is declared, not implicit.</td></tr>
+          <tr><td>3</td><td><strong>World binding (WorldDAO)</strong></td><td>analytics ⇄ knitweb</td><td>vang analytics</td><td><code>cap()</code> reads the knitweb registry for <code>registered_persons + expected_births</code>. Can only read, never write.</td></tr>
+          <tr><td>4</td><td><strong>Settlement order</strong></td><td>analytics → knitweb</td><td>knitweb</td><td>Float→integer crossing off the value-path. <code>SettlementOrder.amount</code> is a non-negative integer; the knitweb module never imports the float layer.</td></tr>
+          <tr><td>5</td><td><strong>Dual-signed Knit</strong></td><td>knitweb internal</td><td>knitweb</td><td><code>transfer_to</code> on an <code>AccountNode</code> produces a signed <code>Knit</code> with network id, nonce, and balance guards.</td></tr>
+        </tbody>
+      </table>
+      <div class="invariant-box">
+        <p>Invariant: floats never reach canonical encoding; integers never carry analytic precision back out across a seam.</p>
+      </div>
+
+      <hr>
+
+      <h2>Settlement Kinds</h2>
+      <table>
+        <thead><tr><th>Kind</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>COUPON</code></td><td>Periodic coupon payment denominated in native PLS.</td></tr>
+          <tr><td><code>REDEMPTION</code></td><td>Face value repayment at maturity, denominated in native PLS.</td></tr>
+          <tr><td><code>CONVERSION</code></td><td>Maturity taken as underlying-token units rather than PLS.</td></tr>
+        </tbody>
+      </table>
+
+      <hr>
+
+      <h2>World Demographic Registry</h2>
+      <p>Each world contributes a population-anchored vote supply:</p>
+      <pre><code>max_vote_supply(world) = registered_persons(world) + expected_births(world, year)</code></pre>
+      <p>The <code>expected_births</code> forward allowance lets newly registered people receive a vote without a mid-year cap adjustment. <code>registered_persons</code> counts confirmed registrations via:</p>
+      <ul>
+        <li><strong>NATIONAL</strong> — verified national-registry identity</li>
+        <li><strong>FREEPORT</strong> — IMEI + email + ad-hoc proof (for the stateless/unbanked)</li>
+      </ul>
+      <p>Raw PII is never stored — only content-addressed digests (<code>subject</code> for dedup, <code>proof</code> for evidence).</p>
+
+      <hr>
+
+      <h2>Gateway API</h2>
+
+      <h3>GET /api/worlds</h3>
+      <pre><code>{
+  "worlds": [
+    {
+      "id": "earth",
+      "name": "Earth",
+      "registered": 8100000000,
+      "expected_births": 140000000,
+      "max_vote_supply": 8240000000,
+      "issued": 0
+    }
+  ]
+}</code></pre>
+
+      <h3>GET /api/quantum/frontier</h3>
+      <pre><code>{
+  "frontier": [
+    {"label": "Circuit", "value": "secp256k1-point-add"},
+    {"label": "Score",   "value": "1,582,755,898"},
+    {"label": "Toffoli", "value": "1,365,622"},
+    {"label": "Qubits",  "value": "1159"},
+    {"label": "Commit",  "value": "4a90d04"}
+  ]
+}</code></pre>
+
+      <h3>POST /api/govern/settle</h3>
+      <p>Preview a settlement order (integer validation, no Knit executed). <code>amount</code> must be a positive integer — float returns <code>400</code>.</p>
+      <pre><code>{"kind": "COUPON", "amount": 1000, "symbol": "PLS", "beat": 5, "world": "earth"}</code></pre>
+
+      <hr>
+
+      <h2>Quantum Frontier</h2>
+      <p>Circuit submissions are signed and woven into the knitweb fabric as content-addressed records. Score encoding is integer-only:</p>
+      <pre><code>toffoli_milli = int(avg_toffoli × 1000)
+score_approx  = toffoli_milli × peak_qubits // 1000</code></pre>
+
+      <div class="metric-grid">
+        <div class="metric-card"><p class="metric-label">Circuit</p><p class="metric-val">secp256k1-point-add</p></div>
+        <div class="metric-card"><p class="metric-label">Score</p><p class="metric-val">1,582,755,898</p></div>
+        <div class="metric-card"><p class="metric-label">Toffoli (avg)</p><p class="metric-val">1,365,622</p></div>
+        <div class="metric-card"><p class="metric-label">Peak qubits</p><p class="metric-val">1,159</p></div>
+      </div>
+
+      <hr>
+
+      <h2>Quantum Weft</h2>
+      <p>WNW treats the future quantum/circuit surface as a spherical, layered fabric rather than a square linear grid. The address shape is radial and angular: <code>layer</code>, <code>theta</code>, <code>phi</code>, <code>beat</code>, <code>band</code>, and <code>relation</code>.</p>
+      <table>
+        <thead><tr><th>Layer</th><th>Name</th><th>Function</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td><strong>Pulse vessel</strong></td><td>Clock, event root, beat envelope, and cross-layer event timing.</td></tr>
+          <tr><td>1</td><td><strong>Quantum-dot anchor</strong></td><td>Optical or indirect address surface: laser path, dot/molecule identity, and emission band.</td></tr>
+          <tr><td>2</td><td><strong>Bonded molecule ring</strong></td><td>Element addresses bind through molecular bonds and neighbor digests.</td></tr>
+          <tr><td>3</td><td><strong>Frequency shell</strong></td><td>Outer layers may use different bands while keeping relation to the center.</td></tr>
+          <tr><td>4</td><td><strong>Narrow-web fabric</strong></td><td>P2P fact proposals, RAG slices, and LLM context packets traverse the sphere.</td></tr>
+          <tr><td>5</td><td><strong>Human lens</strong></td><td>AR/VR inspection, 360-degree movement, and detail cards.</td></tr>
+        </tbody>
+      </table>
+      <p>This is a research positioning layer today. The current implementation is a browser-visible canvas demo and deterministic address schema; it does not claim production molecule-level hardware control.</p>
+
+      <hr>
+
+      <h2>Quantum Forge</h2>
+      <p>At one end of the WNW spectrum, Gither can become a shared forge for quantum circuit code. The shape is GitHub-like for collaboration and MLflow-like for experiment lineage, while authority remains in signed knitweb records.</p>
+      <table>
+        <thead><tr><th>Record</th><th>Fields</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Circuit repo</strong></td><td>QASM, QIR, Qiskit, Cirq, PennyLane, reversible arithmetic manifests</td><td>Code, issues, reviews, signed refs, and merge gates.</td></tr>
+          <tr><td><strong>Experiment run</strong></td><td>backend, shots, seed, transpiler version, calibration hash, queue time, result CID</td><td>MLflow-style lineage without one experiment server owning truth.</td></tr>
+          <tr><td><strong>Benchmark frontier</strong></td><td>Toffoli, depth, qubits, fidelity, cost, integer score</td><td>Reproducible comparison before accepting a claimed circuit improvement.</td></tr>
+        </tbody>
+      </table>
+      <pre><code>quantum_run = {
+  repo, circuit_cid, language, backend, shots,
+  params_cid, result_cid, score_int, review_sig
+}</code></pre>
+
+      <hr>
+
+      <h2>Vank Mesh Exchange</h2>
+      <p>At the other end of the spectrum, Vank can provide the exchange side: a familiar Bitcoin.de/Intersango/Mt. Gox-era market experience, but without the dangerous part: no central exchange wallet and no hosted orderbook as trust root.</p>
+      <table>
+        <thead><tr><th>Component</th><th>Responsibility</th><th>Must not do</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Order intent</strong></td><td>Signed pair, side, amount, price tick, expiry, jurisdiction hints.</td><td>Custody funds.</td></tr>
+          <tr><td><strong>Gossip orderbook</strong></td><td>Merge fresh signed offers from peers and narrow-web relays.</td><td>Become canonical truth by server position.</td></tr>
+          <tr><td><strong>Escrow term</strong></td><td>HTLC, multisig, bonded mediator, proof-of-payment, or local rail condition.</td><td>Hide settlement rules off-record.</td></tr>
+          <tr><td><strong>Pulse settlement</strong></td><td>Record opened, locked, paid, released, disputed, resolved.</td><td>Accept floats on canonical value path.</td></tr>
+        </tbody>
+      </table>
+      <pre><code>vank_order = {
+  pair, side, amount_int, price_tick, expiry_beat,
+  escrow, proof_cid, signatures
+}</code></pre>
+
+      <hr>
+
+      <h2>Specify, Do Not Search</h2>
+      <p>The WNW query surface first returns a proposal: terms, scope, columns, estimated rows, estimated bytes, relay packets, and initial entities. Full table rows are fetched only after the user accepts or narrows the fact contract.</p>
+      <table>
+        <thead><tr><th>Field</th><th>Example estimate for steel mine detail cards</th></tr></thead>
+        <tbody>
+          <tr><td>Rows</td><td>9,840</td></tr>
+          <tr><td>Columns</td><td>18</td></tr>
+          <tr><td>Payload</td><td>4.6 MB</td></tr>
+          <tr><td>Relay packets</td><td>33k x 140-character packets</td></tr>
+          <tr><td>Initial entities</td><td>Carajas Serra Norte, Kiruna, Pilbara iron ore system, Sishen</td></tr>
+        </tbody>
+      </table>
+      <p>For P2P-connected LLM use, this gives the model bounded fact slices with provenance and byte estimates instead of a vague open-web prompt. Narrow-web peers are queried first; Google/LLM fallback is reserved for under-specified questions or missing fields.</p>
+
+      <hr>
+
+      <h2>Small-Device Relay</h2>
+      <p>A proposal can be compressed into two short BC2-style lines for bitchat-like field relay. The capsule carries only scope, estimate, beat, and content-address hints; the full fact table is fetched only after the peer accepts the proposed slice.</p>
+      <pre><code>WNW1 steel-mines rows=9840 cols=18 bytes=4.6MB beat=0
+CID? est=&lt;digest&gt; scope=world accept=narrow/refine/query</code></pre>
+
+      <hr>
+
+      <h2>Proposed Backlog</h2>
+      <table>
+        <thead><tr><th>Priority</th><th>Item</th><th>Definition of done</th></tr></thead>
+        <tbody>
+          <tr><td>P0</td><td><strong>Specify contract</strong></td><td>Signed proposal record with terms, scope, columns, estimates, source layer, and accept/refine decision.</td></tr>
+          <tr><td>P0</td><td><strong>Fact table planner</strong></td><td>Deterministic estimate-before-fetch planner with cached estimates per Pulse beat.</td></tr>
+          <tr><td>P1</td><td><strong>BC2 adapter</strong></td><td>Two-line proposal capsules for bitchat-style field relay.</td></tr>
+          <tr><td>P1</td><td><strong>Quantum Weft schema</strong></td><td>Canonical radial/angular address type with layer, theta, phi, beat, band, and relation digest.</td></tr>
+          <tr><td>P1</td><td><strong>AR/VR fabric view</strong></td><td>WebXR demo that inspects shells, traverses 360 degrees, and opens detail cards.</td></tr>
+          <tr><td>P2</td><td><strong>Quantum circuit bridge</strong></td><td>Circuit submissions mapped into weft coordinates and compared as signed QPU/GPU/TPU records.</td></tr>
+          <tr><td>P2</td><td><strong>Quantum Forge runs</strong></td><td>MLflow-like run records for circuit code: params, backend, shots, result CID, score, and review signature.</td></tr>
+          <tr><td>P2</td><td><strong>Vank mesh orderbook</strong></td><td>Non-custodial signed order intents, gossip merge rules, expiry, escrow terms, and settlement proof states.</td></tr>
+        </tbody>
+      </table>
+
+      <hr>
+
+      <h2>Implementation References</h2>
+      <table>
+        <thead><tr><th>Component</th><th>Location</th></tr></thead>
+        <tbody>
+          <tr><td>WorldRegistry</td><td><code>pulse/src/knitweb/govern/worlds.py</code></td></tr>
+          <tr><td>SettlementOrder</td><td><code>pulse/src/knitweb/govern/settle.py</code></td></tr>
+          <tr><td>QuantumKnitweb</td><td><code>pulse/src/knitweb/knitwebs/quantum/__init__.py</code></td></tr>
+          <tr><td>Gateway WNW routes</td><td><code>pulse/src/knitweb/gateway.py</code></td></tr>
+          <tr><td>vang analytics (float side)</td><td><code>vank/src/knitweb_vank/settle.py</code></td></tr>
+          <tr><td>WNW web3 page</td><td><code>k.nitweb.art/worlds.html</code></td></tr>
+          <tr><td>Quantum Weft demo</td><td><code>k.nitweb.art/worlds.html#quantum-weft</code></td></tr>
+          <tr><td>Quantum Forge + Vank exchange spectrum</td><td><code>k.nitweb.art/worlds.html#spectrum</code></td></tr>
+          <tr><td>Specify interface</td><td><code>k.nitweb.art/worlds.html#specify</code></td></tr>
+          <tr><td>PDF backlog</td><td><code>k.nitweb.art/output/pdf/wnw-quantum-weft-backlog.pdf</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <footer style="padding:24px clamp(18px,5vw,72px); border-top:1px solid var(--line); font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <span>Knitweb · vang · Pulse · <a href="../worlds.html#self-host" style="color:var(--accent-2)">Self-host node ↗</a></span>
+    <span><a href="https://github.com/Knitweb/pulse" style="color:var(--muted)">pulse</a> · <a href="https://knitweb.github.io/gither/" style="color:var(--muted)">gither</a></span>
+  </footer>
+</body>
+</html>
