@@ -87,6 +87,27 @@ def test_index_and_query_by_domain_and_qubits():
     assert "lcid:g3" not in by_qubits["cids"]
 
 
+def test_unfiltered_list_queries_all_kinds():
+    # regression: results/systems must be listable with no filter (identity atom)
+    space = LensSpace()
+    index_into(space, QuantumCircuitRecord(circuit_cid="lcid:c1", name="c1", qubits=2))
+    index_into(space, QuantumResultRecord(result_cid="lres:r1", circuit_cid="lcid:c1",
+               counts={"00": 10}))
+    index_into(space, QuantumSystemRecord(backend_cid="lqpu:s1", name="s1", n_qubits=4))
+    assert query_space(space, "circuits")["cids"] == ["lcid:c1"]
+    assert query_space(space, "results")["cids"] == ["lres:r1"]
+    assert query_space(space, "systems")["cids"] == ["lqpu:s1"]
+
+
+def test_int_and_str_values_match_by_render():
+    # the gateway matches values by rendered string, not reconstructed typename
+    space = LensSpace()
+    index_into(space, QuantumCircuitRecord(circuit_cid="lcid:x", name="bell", qubits=2,
+               domain="fundamental"))
+    assert query_space(space, "circuits qubits<=2")["cids"] == ["lcid:x"]
+    assert query_space(space, "circuits domain=fundamental")["cids"] == ["lcid:x"]
+
+
 def test_lens_callable_contract():
     space = LensSpace()
     index_into(space, QuantumSystemRecord(backend_cid="lqpu:aer", name="aer",

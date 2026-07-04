@@ -43,6 +43,7 @@ def atoms_for(record) -> list[Atom]:
     if isinstance(record, QuantumResultRecord):
         head = SymbolAtom("QuantumResult")
         atoms = [
+            ExpressionAtom(head, _kv("CID", record.result_cid, "CID")),  # identity (list-all)
             ExpressionAtom(head, _kv("CID", record.result_cid, "CID"), _kv("of", record.circuit_cid, "CID")),
             ExpressionAtom(head, _kv("CID", record.result_cid, "CID"), _kv("shots", record.shots, "Int")),
             ExpressionAtom(head, _kv("CID", record.result_cid, "CID"), _kv("top", record.most_frequent, "Str")),
@@ -57,6 +58,7 @@ def atoms_for(record) -> list[Atom]:
     if isinstance(record, QuantumSystemRecord):
         head = SymbolAtom("QuantumSystem")
         atoms = [
+            ExpressionAtom(head, _kv("CID", record.backend_cid, "CID")),  # identity (list-all)
             ExpressionAtom(head, _kv("CID", record.backend_cid, "CID"), _kv("name", record.name, "Str")),
             ExpressionAtom(head, _kv("CID", record.backend_cid, "CID"), _kv("qubits", record.n_qubits, "Int")),
             ExpressionAtom(head, _kv("CID", record.backend_cid, "CID"), _kv("kind", record.kind_, "Str")),

@@ -16,24 +16,30 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ..lens.atom import ExpressionAtom, GroundedAtom, SymbolAtom, VariableAtom
+from ..lens.atom import ExpressionAtom, SymbolAtom, VariableAtom
 from ..lens.space import LensSpace
 
 __all__ = ["build_lens", "query_space"]
 
 
 def _cids_for(space: LensSpace, head: str, key: str, value: str) -> list[str]:
-    """Return CID strings of ``head`` atoms whose (key value) pair matches."""
+    """Return CID strings of ``head`` atoms whose (key value) pair matches.
+
+    The value position is matched with a variable and compared by its rendered
+    string, so matching does not depend on reconstructing the grounded atom's
+    typename (an int ``2`` renders "2" and matches the query "2" alike).
+    """
     pattern = ExpressionAtom(
         SymbolAtom(head),
         ExpressionAtom(SymbolAtom("CID"), VariableAtom("cid")),
-        ExpressionAtom(SymbolAtom(key), GroundedAtom(value, _typename(value), str(value))),
+        ExpressionAtom(SymbolAtom(key), VariableAtom("val")),
     )
     out = []
     for _atom, binding in space.query(pattern):
-        c = binding.get("cid")
-        if c is not None:
-            out.append(str(c))
+        val = binding.get("val")
+        cid = binding.get("cid")
+        if cid is not None and val is not None and str(val) == value:
+            out.append(str(cid))
     return sorted(set(out))
 
 
@@ -44,10 +50,6 @@ def _all_cids(space: LensSpace, head: str) -> list[str]:
     )
     out = [str(b.get("cid")) for _a, b in space.query(pattern) if b.get("cid") is not None]
     return sorted(set(out))
-
-
-def _typename(value: str) -> str:
-    return "Int" if value.lstrip("-").isdigit() else ("CID" if ":" in value else "Str")
 
 
 def query_space(space: LensSpace, query: str) -> dict:
