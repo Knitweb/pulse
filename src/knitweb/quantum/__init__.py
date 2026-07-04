@@ -18,6 +18,11 @@ from .index import atoms_for, index_into
 from .publish import publish, weave_into, link_provenance
 from .estimate import estimate_circuits, estimate_bytes
 from .lens_gateway import build_lens, query_space
+from .job import (
+    QuantumCircuitJob, QuantumWorkProof, execute, verify, counts_digest,
+    QUANTUM_JOB_CLASS,
+)
+from .simulator import simulate_counts
 
 __all__ = [
     "QuantumCircuitRecord", "QuantumResultRecord", "QuantumSystemRecord",
@@ -25,4 +30,6 @@ __all__ = [
     "publish", "weave_into", "link_provenance",
     "estimate_circuits", "estimate_bytes",
     "build_lens", "query_space",
+    "QuantumCircuitJob", "QuantumWorkProof", "execute", "verify", "counts_digest",
+    "QUANTUM_JOB_CLASS", "simulate_counts",
 ]
