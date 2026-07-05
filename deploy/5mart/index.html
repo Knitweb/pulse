@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>5mart.ml — the Knitweb relay & apps</title>
+<meta name="description" content="5mart.ml — a live Knitweb relay serving the World Narrow Web, the Lens circuit library, QuantumV puzzles and the MOLGANG chemistry game. Self-custody, content-addressed, peer-to-peer.">
+<style>
+  :root{--bg:#0b0e14;--surface:#141922;--line:#262d3a;--text:#e6edf3;--muted:#8b95a5;
+    --accent:#5fd0a5;--accent2:#78a8ff;--gold:#f4c95d;--purple:#c084fc;
+    --mono:'SF Mono',ui-monospace,'JetBrains Mono',Menlo,Consolas,monospace}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(1100px 700px at 72% -10%,#101826,#0b0e14);color:var(--text);
+    font-family:var(--mono);font-size:14px;line-height:1.6;max-width:900px;margin:0 auto;padding:22px}
+  a{color:var(--accent2);text-decoration:none} a:hover{text-decoration:underline}
+  .hero{padding:36px 0 20px;border-bottom:1px solid var(--line)}
+  .eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:var(--muted)}
+  h1{font-size:32px;font-weight:800;margin-top:8px} h1 span{color:var(--accent)}
+  .lede{color:var(--muted);max-width:600px;margin-top:12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin:24px 0}
+  .card{display:block;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px}
+  .card:hover{border-color:var(--accent)66;text-decoration:none;transform:translateY(-1px);transition:.15s}
+  .card .ic{font-size:1.6em}
+  .card .t{font-weight:700;color:var(--text);margin-top:6px}
+  .card .d{color:var(--muted);font-size:12px;margin-top:4px}
+  footer{border-top:1px solid var(--line);margin-top:12px;padding-top:14px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<section class="hero">
+  <p class="eyebrow">live Knitweb relay · self-custody · peer-to-peer</p>
+  <h1>5mart<span>.ml</span></h1>
+  <p class="lede">A live Knitweb relay and app host. Everything here is content-addressed and
+     self-custody — your keys stay on your device. Hop anywhere from the menu above.</p>
+</section>
+
+<main class="grid">
+  <a class="card" href="wnw/worlds.html">
+    <div class="ic">🌐</div><div class="t">World Narrow Web</div>
+    <div class="d">Spherical quantum-weft knowledge graph; estimate-before-fetch.</div>
+  </a>
+  <a class="card" href="lens/">
+    <div class="ic">⬡</div><div class="t">Lens — circuit library</div>
+    <div class="d">100 quantum circuits, results and backends by content id.</div>
+  </a>
+  <a class="card" href="quantum/">
+    <div class="ic">🎛️</div><div class="t">QuantumV — puzzles</div>
+    <div class="d">Build circuits to solve 14 quantum puzzles.</div>
+  </a>
+  <a class="card" href="molgang/">
+    <div class="ic">🧪</div><div class="t">MOLGANG</div>
+    <div class="d">Peer-to-peer chemistry learning game on the Knitweb.</div>
+  </a>
+  <a class="card" href="https://knitweb.art/demos/">
+    <div class="ic">🧩</div><div class="t">Demos ↗</div>
+    <div class="d">Lens · PoUW · Pulse fabric — interactive, on knitweb.art.</div>
+  </a>
+  <a class="card" href="https://node.knitweb.art">
+    <div class="ic">📡</div><div class="t">Run a node ↗</div>
+    <div class="d">Open a port, run the process — Bitcoin-style. No Docker required.</div>
+  </a>
+</main>
+
+<footer>
+  5mart.ml — a Knitweb relay. Open source: <a href="https://github.com/Knitweb/pulse">pulse</a> ·
+  <a href="https://knitweb.art">knitweb.art</a>. Content-addressed, signed, self-custody — nothing custodial.
+</footer>
+<script src="nav.js" defer></script>
+</body>
+</html>
