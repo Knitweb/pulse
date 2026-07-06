@@ -50,6 +50,7 @@ from .campaign import (
 )
 from .settlement import (
     EscrowError,
+    RefundClaimDesk,
     SettlementSession,
     execute_forfeiture,
     execute_settlement,
@@ -65,7 +66,7 @@ __all__ = [
     "settlement_entries", "settlement_fee", "campaign_policy", "forfeiture_entries",
     "collect_pledges", "execute_settlement", "execute_forfeiture", "EscrowError",
     "collect_campaigns", "campaign_status", "is_campaign_open",
-    "validate_payout", "SettlementSession",
+    "validate_payout", "SettlementSession", "RefundClaimDesk",
 ]
 
 
