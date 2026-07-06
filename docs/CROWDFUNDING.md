@@ -78,6 +78,26 @@ outcome_cid, authority, mode (release|refund), total_amount, entry_count, settle
   (idempotent via `applied`); `validate_payout(knit, settlement_att, ..., payee_pub)` — payee-side
   authorisation; `SettlementSession(...)` — resumable, payee-validated escrow-push (`.step`/`.run`).
 
+## Settlement policy (optional, signed) — #203
+
+The default is the MVP: **no fees, indefinite refund claims**. A campaign may opt in to audited
+policy extensions by carrying a signed `policy` term in its `Campaign` definition. The policy is
+part of the authority-signed campaign record — so an MVP campaign's record (and cid) is unchanged,
+and no fee or forfeiture can be applied without a signed campaign term.
+
+Policy keys (all optional; unknown keys are rejected):
+
+| Key | Applies to | Effect |
+|-----|------------|--------|
+| `fee_bps` + `fee_payee` | met goal (release) | A protocol/relayer fee of `fee_bps/10000` (integer floor) is **carved out of the beneficiary's share** and paid to `fee_payee` as an explicit settlement entry. `net + fee == gross` — escrow value is conserved. The fee is surfaced as `fee_amount`/`fee_payee` on the settlement record and committed by `settlement_root`. |
+| `forfeit_after` + `forfeit_to` | missed goal (refund) | After `now >= forfeit_after`, refunds still **unclaimed** may be swept to `forfeit_to` (treasury / redistribution pool). `forfeiture_entries(...)` redirects only pledge cids **not** in the caller-supplied `claimed_cids`; the claimed set is committed by `claimed_root`, so an executor cannot sweep an already-claimed refund. |
+
+API: `CrowdfundingCampaign.forfeit(outcome, campaign, pledges, claimed_cids, now)` signs the
+forfeiture instruction; `verify_forfeiture(...)` / `audit_forfeiture(...)` recompute it
+independently; `execute_forfeiture(forfeiture_att, ..., escrow, forfeit_account, *, applied=None)`
+sweeps the residual (idempotent via `applied`). `settlement_fee(campaign_record, gross)` exposes
+the fee split; `campaign_policy(campaign_record)` returns the validated policy (or `{}`).
+
 ## Trust model
 
 Inherits the personhood foundation's posture (trusted-RP now, ZK seam later; zero PII; race-free

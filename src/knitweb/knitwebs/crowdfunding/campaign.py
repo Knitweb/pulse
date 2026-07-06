@@ -28,6 +28,7 @@ __all__ = [
     "CAMPAIGN_KIND",
     "OUTCOME_KIND",
     "SETTLEMENT_KIND",
+    "FORFEITURE_KIND",
     "Campaign",
     "CrowdfundingCampaign",
     "verify_outcome",
@@ -35,6 +36,11 @@ __all__ = [
     "verify_settlement",
     "audit_settlement",
     "settlement_entries",
+    "campaign_policy",
+    "settlement_fee",
+    "forfeiture_entries",
+    "verify_forfeiture",
+    "audit_forfeiture",
     "collect_pledges",
     "collect_campaigns",
     "campaign_status",
@@ -45,6 +51,67 @@ PLEDGE_KIND = "crowdfunding-pledge"
 CAMPAIGN_KIND = "crowdfunding-campaign"
 OUTCOME_KIND = "crowdfunding-outcome"
 SETTLEMENT_KIND = "crowdfunding-settlement"
+FORFEITURE_KIND = "crowdfunding-forfeiture"
+
+# Basis-point denominator for the protocol/relayer fee (fee_bps of 10000 == 100%).
+FEE_BPS_DENOM = 10000
+# The only keys a campaign policy may carry — an unknown key is rejected so a term can never be
+# smuggled in unaudited (acceptance: no silent redirection of unclaimed refunds).
+_POLICY_KEYS = frozenset({"fee_bps", "fee_payee", "forfeit_after", "forfeit_to"})
+
+
+def _validate_policy(policy: dict) -> dict:
+    """Validate an optional campaign policy and return it unchanged (canonicalisable).
+
+    A policy is a signed campaign term: it opts a campaign into protocol/relayer fees (on a met
+    goal) and/or forfeiture of unclaimed refunds after an expiry (on a missed goal). All keys are
+    optional; the default (no policy) is the fee-free, indefinite-claim MVP. Any enabled fee or
+    forfeiture is expressed as explicit, deterministic settlement entries committed by the
+    settlement/forfeiture root — never a hidden redirection.
+    """
+    if not isinstance(policy, dict):
+        raise TypeError("campaign policy must be a dict")
+    unknown = set(policy) - _POLICY_KEYS
+    if unknown:
+        raise ValueError(f"unknown campaign policy keys: {sorted(unknown)}")
+
+    fee_bps = policy.get("fee_bps", 0)
+    if not isinstance(fee_bps, int) or isinstance(fee_bps, bool) or not (0 <= fee_bps <= FEE_BPS_DENOM):
+        raise ValueError(f"fee_bps must be an int in [0, {FEE_BPS_DENOM}]")
+    if fee_bps and not policy.get("fee_payee"):
+        raise ValueError("fee_payee is required when fee_bps > 0")
+    if policy.get("fee_payee") and not crypto.is_valid_address(policy["fee_payee"]):
+        raise ValueError("fee_payee must be a current PLS address")
+
+    forfeit_after = policy.get("forfeit_after")
+    if forfeit_after is not None:
+        if not isinstance(forfeit_after, int) or isinstance(forfeit_after, bool):
+            raise ValueError("forfeit_after must be an int epoch time")
+        if not policy.get("forfeit_to"):
+            raise ValueError("forfeit_to is required when forfeit_after is set")
+    if policy.get("forfeit_to") and not crypto.is_valid_address(policy["forfeit_to"]):
+        raise ValueError("forfeit_to must be a current PLS address")
+    return policy
+
+
+def campaign_policy(campaign_record: dict) -> dict:
+    """The campaign's signed policy, or ``{}`` for an MVP (no-policy) campaign."""
+    policy = campaign_record.get("policy")
+    return _validate_policy(policy) if policy else {}
+
+
+def settlement_fee(campaign_record: dict, gross_total: int) -> tuple[int, str]:
+    """The protocol/relayer fee ``(amount, fee_payee)`` carved from a released ``gross_total``.
+
+    Integer floor of ``gross_total * fee_bps / 10000`` — never creates value: the fee comes out of
+    the beneficiary's share, so ``net + fee == gross_total``. Returns ``(0, "")`` when the campaign
+    has no fee policy.
+    """
+    policy = campaign_policy(campaign_record)
+    fee_bps = policy.get("fee_bps", 0)
+    if not fee_bps:
+        return 0, ""
+    return (gross_total * fee_bps) // FEE_BPS_DENOM, policy["fee_payee"]
 
 
 @dataclass(frozen=True)
@@ -56,6 +123,7 @@ class Campaign:
     opens_at: int      # epoch seconds (inclusive)
     closes_at: int     # epoch seconds (exclusive)
     beneficiary: str = ""  # pls1 address funds are released to if the goal is met (required to settle a success)
+    policy: "dict | None" = None  # optional signed fee / forfeiture terms (default: fee-free, indefinite claims)
 
     def __post_init__(self) -> None:
         for name, value in (("goal", self.goal), ("opens_at", self.opens_at),
@@ -70,6 +138,8 @@ class Campaign:
             raise ValueError("scope must be non-empty")
         if self.beneficiary and not crypto.is_valid_address(self.beneficiary):
             raise ValueError("beneficiary must be empty or a current PLS address")
+        if self.policy is not None:
+            _validate_policy(self.policy)
 
 
 class CrowdfundingCampaign:
@@ -96,6 +166,10 @@ class CrowdfundingCampaign:
             "beneficiary": campaign.beneficiary,
             "authority": self.authority,
         }
+        # A policy is included only when set, so an MVP campaign's record (and its cid) is
+        # byte-identical to before this feature — the signed policy is what authorises fees/forfeiture.
+        if campaign.policy is not None:
+            record["policy"] = _validate_policy(campaign.policy)
         canonical.encode(record)
         return attest(record, self._priv, author_field="authority")
 
@@ -122,6 +196,21 @@ class CrowdfundingCampaign:
         if campaign_record.get("authority") != self.authority:
             raise ValueError("only the defining authority may settle this campaign")
         record = _settlement_record(outcome_record, campaign_record, pledges, self.authority)
+        return attest(record, self._priv, author_field="authority")
+
+    def forfeit(self, outcome_record: dict, campaign_record: dict, pledges: list[dict],
+                claimed_cids: list[str], now: int) -> Attestation:
+        """Sign a forfeiture instruction redirecting refunds still unclaimed at ``now``.
+
+        Only the defining authority may forfeit, only under the campaign's signed forfeiture policy,
+        and only for the refunds not present in ``claimed_cids``. Deterministic and independently
+        checkable (:func:`verify_forfeiture`); like :meth:`settle` it is an instruction — it does
+        not itself move PLS.
+        """
+        if campaign_record.get("authority") != self.authority:
+            raise ValueError("only the defining authority may forfeit this campaign")
+        record = _forfeiture_record(outcome_record, campaign_record, pledges,
+                                    claimed_cids, now, self.authority)
         return attest(record, self._priv, author_field="authority")
 
 
@@ -221,6 +310,21 @@ def settlement_entries(outcome_record: dict, campaign_record: dict,
     if mode == "release" and not beneficiary:
         raise ValueError("campaign has no beneficiary; cannot release a met goal")
 
+    # Released funds may carry a signed protocol/relayer fee. The fee is carved out of the
+    # beneficiary's share (net + fee == gross), so escrow value is conserved; when a fee applies the
+    # beneficiary payout is a single aggregated entry plus an explicit fee entry, both committed by
+    # settlement_root. Refunds and no-policy releases keep the per-pledge entries unchanged.
+    if mode == "release":
+        gross = sum(pledge["amount"] for pledge in in_window)
+        fee, fee_payee = settlement_fee(campaign_record, gross)
+        if fee_payee:  # a fee policy is active (fee may floor to 0 on a tiny goal)
+            campaign_cid = canonical.cid(campaign_record)
+            entries = [(campaign_cid, beneficiary, gross - fee)]
+            if fee > 0:
+                entries.append((f"fee:{campaign_cid}", fee_payee, fee))
+            entries.sort()
+            return mode, entries
+
     entries = []
     for pledge in in_window:
         payee = beneficiary if mode == "release" else pledge["actor"]
@@ -253,6 +357,13 @@ def _settlement_record(outcome_record: dict, campaign_record: dict, pledges: lis
         "entry_count": len(entries),
         "settlement_root": settlement_root,
     }
+    # Surface an applied fee explicitly (the entries already commit it via settlement_root); the
+    # keys are added only when a fee is actually charged, so MVP settlement records are unchanged.
+    if mode == "release":
+        fee, fee_payee = settlement_fee(campaign_record, total)
+        if fee > 0:
+            record["fee_amount"] = fee
+            record["fee_payee"] = fee_payee
     canonical.encode(record)
     return record
 
@@ -281,6 +392,100 @@ def audit_settlement(settlement_att: Attestation, outcome_record: dict, campaign
     return (
         settlement_att.verify(author_field="authority")
         and verify_settlement(settlement_att.record, outcome_record, campaign_record, pledges)
+    )
+
+
+def _claimed_root(claimed_cids: list[str]) -> str:
+    """Merkle commitment over the set of already-claimed refund pledge cids (sorted, deduped)."""
+    unique = sorted(set(claimed_cids))
+    return crypto.merkle_root([crypto.sha256(c.encode("utf-8")) for c in unique]).hex()
+
+
+def forfeiture_entries(outcome_record: dict, campaign_record: dict, pledges: list[dict],
+                       claimed_cids: list[str], now: int) -> list[tuple[str, str, int]]:
+    """Payout entries redirecting **unclaimed** refunds to the policy's forfeiture address.
+
+    Only valid on a *missed* goal (refund mode) for a campaign whose signed policy carries both
+    ``forfeit_after`` and ``forfeit_to``, once ``now >= forfeit_after``. Each refund whose pledge
+    cid is not in ``claimed_cids`` is redirected — as an explicit ``(pledge_cid, forfeit_to,
+    amount)`` entry — to the forfeiture pool/treasury. Deterministic given the claimed set; entries
+    are sorted. Raises :class:`ValueError` if the campaign has no signed forfeiture term, the goal
+    was met, or the window has not opened — so refunds can never be silently redirected.
+    """
+    mode, refund_entries = settlement_entries(outcome_record, campaign_record, pledges)
+    if mode != "refund":
+        raise ValueError("forfeiture applies only to refunds (a missed goal)")
+    policy = campaign_policy(campaign_record)
+    forfeit_after = policy.get("forfeit_after")
+    forfeit_to = policy.get("forfeit_to")
+    if forfeit_after is None or not forfeit_to:
+        raise ValueError("campaign has no signed forfeiture term; refusing to redirect refunds")
+    if not isinstance(now, int) or isinstance(now, bool):
+        raise ValueError("now must be an int epoch time")
+    if now < forfeit_after:
+        raise ValueError(f"forfeiture window not reached ({now} < {forfeit_after})")
+    claimed = set(claimed_cids)
+    entries = [(cid, forfeit_to, amount) for cid, _payee, amount in refund_entries
+               if cid not in claimed]
+    entries.sort()
+    return entries
+
+
+def _forfeiture_record(outcome_record: dict, campaign_record: dict, pledges: list[dict],
+                       claimed_cids: list[str], now: int, authority_addr: str) -> dict:
+    """The deterministic ``crowdfunding-forfeiture`` record — pure, unsigned."""
+    entries = forfeiture_entries(outcome_record, campaign_record, pledges, claimed_cids, now)
+    total = sum(amount for _cid, _payee, amount in entries)
+    forfeiture_root = crypto.merkle_root(
+        [crypto.sha256(canonical.encode([cid, payee, amount])) for cid, payee, amount in entries]
+    ).hex()
+    forfeit_to = campaign_policy(campaign_record)["forfeit_to"]
+    record = {
+        "kind": FORFEITURE_KIND,
+        "scope": campaign_record["scope"],
+        "campaign_cid": canonical.cid(campaign_record),
+        "outcome_cid": canonical.cid(outcome_record),
+        "authority": authority_addr,
+        "as_of": now,
+        "forfeit_to": forfeit_to,
+        "total_amount": total,
+        "entry_count": len(entries),
+        "claimed_count": len(set(claimed_cids)),
+        "claimed_root": _claimed_root(claimed_cids),
+        "forfeiture_root": forfeiture_root,
+    }
+    canonical.encode(record)
+    return record
+
+
+def verify_forfeiture(forfeiture_record: dict, outcome_record: dict, campaign_record: dict,
+                      pledges: list[dict], claimed_cids: list[str]) -> bool:
+    """True iff ``forfeiture_record`` is exactly the honest forfeiture for this
+    (outcome, campaign, pledges, claimed set, as_of) — independent recomputation."""
+    if not isinstance(forfeiture_record, dict) or not isinstance(campaign_record, dict):
+        return False
+    if forfeiture_record.get("kind") != FORFEITURE_KIND:
+        return False
+    if campaign_record.get("authority") != forfeiture_record.get("authority"):
+        return False
+    now = forfeiture_record.get("as_of")
+    if not isinstance(now, int) or isinstance(now, bool):
+        return False
+    try:
+        expected = _forfeiture_record(outcome_record, campaign_record, pledges,
+                                      claimed_cids, now, forfeiture_record["authority"])
+    except (ValueError, KeyError, TypeError):
+        return False
+    return expected == forfeiture_record
+
+
+def audit_forfeiture(forfeiture_att: Attestation, outcome_record: dict, campaign_record: dict,
+                     pledges: list[dict], claimed_cids: list[str]) -> bool:
+    """Full audit: the forfeiture is validly authority-signed AND recomputes from the inputs."""
+    return (
+        forfeiture_att.verify(author_field="authority")
+        and verify_forfeiture(forfeiture_att.record, outcome_record, campaign_record,
+                              pledges, claimed_cids)
     )
 
 
