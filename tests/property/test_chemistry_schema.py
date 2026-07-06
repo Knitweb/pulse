@@ -188,3 +188,23 @@ def test_canonical_encode_is_deterministic():
     b1 = canonical_encode(rec)
     b2 = canonical_encode(rec)
     assert b1 == b2
+
+
+# ---------------------------------------------------------------------------
+# Cross-version identity: schema_version is bound into the CID, so a v2 record
+# can never collide with a v1 record (#210 — cross-version byte-identity).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.property
+def test_schema_version_is_bound_into_cid():
+    v1 = chemistry_node_record(formula="H2O", name_en="Water", name_nl="Water",
+                               schema_version=1)
+    v2 = chemistry_node_record(formula="H2O", name_en="Water", name_nl="Water",
+                               schema_version=2)
+    assert canonical_cid(v1) != canonical_cid(v2), (
+        "schema_version must change the CID — otherwise a migrated record could "
+        "collide with a v1 record."
+    )
+    # the pinned golden is the v1 (current SCHEMA_VERSION) value
+    assert canonical_cid(v1) == GOLDEN_CIDS["chemistry-node:H2O"]
