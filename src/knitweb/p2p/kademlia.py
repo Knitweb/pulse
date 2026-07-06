@@ -52,6 +52,30 @@ storage, bucket-refresh timers, republish/expiry, and RTT-based ordering. This
 gives ``discovery.py``'s ``PeerDirectory`` a real structured-overlay behind the
 same :class:`PeerAddress` shape **without editing discovery.py**.
 
+Keyspace-eclipse hardening (#70, S/Kademlia — see docs/P2P_DHT_ECLIPSE_HARDENING.md).
+Because ids are ``sha256(pubkey)`` and keypairs are free, an attacker can grind
+keys until ids land next to a chosen target and eclipse its neighbourhood. Three
+defences, all advisory/opt-in per the RFC's rollout plan (§6) until the DHT is the
+load-bearing discovery path:
+
+  * **Static id puzzle** (:func:`id_puzzle_ok`) — an id is *routing-valid* only if
+    ``sha256(sha256(pubkey_hex))`` has ≥ ``C1`` leading zero bits, so minting an id
+    costs ``2^C1`` expected hashes and *targeted* placement costs ``2^(C1+b)`` for
+    ``b`` bits of prefix proximity. Verification is two hashes (O(1)).
+  * **Dynamic epoch puzzle** (:func:`epoch_puzzle_ok`) — ``sha256(node_id ||
+    epoch_seed)`` must clear ``C2`` bits each epoch, so *sustaining* a ground
+    position must be re-paid; the seed is any everyone-agrees value (e.g. a
+    checkpoint / pulse-epoch root).
+  * **Disjoint-path lookups** (:func:`disjoint_lookup`) — ``d`` iterative lookups
+    whose *queried* (intermediate) node sets are kept disjoint via a shared claim
+    set; a contact counts as agreed only when ≥ ``quorum`` independent paths report
+    it, so one controlled neighbourhood cannot decide the result.
+
+:class:`RoutingTable` accepts an injected ``admission_gate`` so the node layer
+(which owns the pubkey↔id mapping via :mod:`knitweb.p2p.peer_identity_gate`) can
+refuse k-bucket admission to unpuzzled ids. The gate defaults to ``None`` — no
+behaviour change until wired.
+
 Byte-identity. Node ids are a *local* routing construct hashed from a public key;
 they never enter a canonical-CBOR record, a Knit, a signature, or a CID. Distances
 and bucket math are integer-only. Nothing here perturbs a signed-record's bytes —
@@ -90,6 +114,15 @@ __all__ = [
     "contacts_to_records",
     "LookupState",
     "iterative_lookup",
+    "DEFAULT_C1",
+    "DEFAULT_C2",
+    "DEFAULT_D",
+    "DEFAULT_QUORUM",
+    "leading_zero_bits",
+    "id_puzzle_ok",
+    "epoch_puzzle_ok",
+    "DisjointLookup",
+    "disjoint_lookup",
 ]
 
 # A node id is a SHA-256 digest: 256 bits / 32 bytes. The whole metric space.
@@ -129,6 +162,69 @@ def node_id(pubkey_hex: str) -> bytes:
 def node_id_hex(pubkey_hex: str) -> str:
     """The node id as lower-case hex (the wire form for ``find_node`` frames)."""
     return node_id(pubkey_hex).hex()
+
+
+# -- S/Kademlia id puzzles (#70) --------------------------------------------------
+#
+# RFC parameters (docs/P2P_DHT_ECLIPSE_HARDENING.md §4). Conservative, tunable, and
+# ADVISORY by default: nothing in this module enforces them unless the caller wires
+# an ``admission_gate`` / calls the predicates. C1=20 is ~1M hashes (seconds of CPU)
+# for an honest join, but a targeted eclipse wanting ``b`` bits of prefix proximity
+# now costs ~2^(C1+b) hashes instead of being free.
+
+DEFAULT_C1 = 20  # static id-puzzle: leading zero bits of sha256(sha256(pubkey_hex))
+DEFAULT_C2 = 12  # dynamic per-epoch puzzle: leading zero bits of sha256(id || seed)
+DEFAULT_D = 3  # disjoint lookup paths
+DEFAULT_QUORUM = 2  # paths that must agree on a contact
+
+
+def leading_zero_bits(data: bytes) -> int:
+    """The number of leading zero *bits* of ``data`` (big-endian). Integer-only.
+
+    ``b"\\x00\\x80..."`` → 8; all-zero input → ``len(data) * 8``. This is the
+    puzzle-difficulty measure: requiring ``c`` leading zero bits makes a preimage
+    cost ``2^c`` expected hashes while verification stays a single comparison.
+    """
+    if not isinstance(data, (bytes, bytearray)):
+        raise TypeError("data must be bytes")
+    return len(data) * 8 - int.from_bytes(data, "big").bit_length()
+
+
+def _check_difficulty(bits: int, name: str) -> int:
+    if not isinstance(bits, int) or isinstance(bits, bool) or bits < 0 or bits > ID_BITS:
+        raise ValueError(f"{name} must be an int in [0, {ID_BITS}]")
+    return bits
+
+
+def id_puzzle_ok(pubkey_hex: str, *, c1: int = DEFAULT_C1) -> bool:
+    """S/Kademlia *static* id puzzle (RFC §3.1): is this pubkey's id routing-valid?
+
+    Valid iff ``leading_zero_bits(sha256(sha256(pubkey_hex))) >= c1`` — i.e. the
+    hash of the node id itself clears ``c1`` bits. The peer must grind its
+    **keypair** (not a throwaway nonce) to satisfy it, so an id near a *specific*
+    target must pay ``2^c1`` (existence) × ``2^b`` (targeting) hashes; the two
+    costs multiply. Verification is two SHA-256 calls — O(1), stdlib-only.
+    """
+    c1 = _check_difficulty(c1, "c1")
+    return leading_zero_bits(hashlib.sha256(node_id(pubkey_hex)).digest()) >= c1
+
+
+def epoch_puzzle_ok(pubkey_hex: str, epoch_seed: "bytes | str", *, c2: int = DEFAULT_C2) -> bool:
+    """S/Kademlia *dynamic* puzzle (RFC §3.2): does this id hold for ``epoch_seed``?
+
+    Valid iff ``leading_zero_bits(sha256(node_id || epoch_seed)) >= c2``. The seed
+    is a low-entropy everyone-agrees value (e.g. a recent checkpoint / pulse-epoch
+    root), so a *sustained* eclipse position must be re-ground every epoch instead
+    of being paid once. A peer failing the current epoch should be degraded (or
+    removed via :meth:`RoutingTable.remove`) by the node layer — this predicate
+    only verifies.
+    """
+    c2 = _check_difficulty(c2, "c2")
+    if isinstance(epoch_seed, str):
+        epoch_seed = epoch_seed.encode("utf-8")
+    elif not isinstance(epoch_seed, (bytes, bytearray)):
+        raise TypeError("epoch_seed must be bytes or str")
+    return leading_zero_bits(hashlib.sha256(node_id(pubkey_hex) + bytes(epoch_seed)).digest()) >= c2
 
 
 def _as_id_bytes(value: "bytes | str") -> bytes:
@@ -321,21 +417,39 @@ class RoutingTable:
     """
 
     def __init__(
-        self, self_id: "bytes | str", *, k: int = DEFAULT_K, source_cap: "int | None" = None
+        self,
+        self_id: "bytes | str",
+        *,
+        k: int = DEFAULT_K,
+        source_cap: "int | None" = None,
+        admission_gate=None,
     ) -> None:
+        if admission_gate is not None and not callable(admission_gate):
+            raise TypeError("admission_gate must be callable or None")
         self.self_id = _as_id_bytes(self_id)
         self.k = k
         self.source_cap = source_cap
+        # Injected S/Kademlia admission predicate (#70): ``gate(contact) -> bool``.
+        # The node layer owns the pubkey↔id mapping (peer_identity_gate verifies key
+        # control), so it builds the gate — typically from :func:`id_puzzle_ok` (+
+        # the current epoch's :func:`epoch_puzzle_ok`) — and unpuzzled ids never
+        # gain k-bucket slots. ``None`` (default) = advisory rollout, no change.
+        self.admission_gate = admission_gate
         self._buckets: list[KBucket] = [
             KBucket(k, source_cap=source_cap) for _ in range(ID_BITS)
         ]
 
     @classmethod
     def from_pubkey(
-        cls, pubkey_hex: str, *, k: int = DEFAULT_K, source_cap: "int | None" = None
+        cls,
+        pubkey_hex: str,
+        *,
+        k: int = DEFAULT_K,
+        source_cap: "int | None" = None,
+        admission_gate=None,
     ) -> "RoutingTable":
         """Build a table for the node owning ``pubkey_hex`` (id = sha256(pubkey))."""
-        return cls(node_id(pubkey_hex), k=k, source_cap=source_cap)
+        return cls(node_id(pubkey_hex), k=k, source_cap=source_cap, admission_gate=admission_gate)
 
     def bucket_for(self, nid: "bytes | str") -> "KBucket | None":
         i = bucket_index(self.self_id, nid)
@@ -362,9 +476,21 @@ class RoutingTable:
 
         Returns ``None`` on admit/refresh, or the stale head the caller must probe.
         Silently ignores the node's own id (a node never routes to itself).
+
+        With an ``admission_gate`` set (#70), a **newcomer** failing the gate is
+        silently refused — no probe, no slot: a ground-but-unpuzzled id must not
+        even cost a live peer a ping. Known peers refresh without re-gating (they
+        passed at admission); epoch re-validation is the node layer's job via
+        :meth:`remove`.
         """
         b = self.bucket_for(contact.node_id)
         if b is None:
+            return None
+        if (
+            self.admission_gate is not None
+            and contact.node_id not in b
+            and not self.admission_gate(contact)
+        ):
             return None
         return b.offer(contact)
 
@@ -569,11 +695,16 @@ class LookupState:
             return None
         return xor_distance(sl[0].node_id, self.target)
 
-    def next_batch(self) -> list[Contact]:
-        """The up-to-``alpha`` closest *unqueried* candidates to query this round."""
+    def next_batch(self, exclude: "set | None" = None) -> list[Contact]:
+        """The up-to-``alpha`` closest *unqueried* candidates to query this round.
+
+        ``exclude`` (id-hex set) additionally skips candidates claimed by another
+        disjoint lookup path (#70) — they stay in the shortlist (and may appear in
+        the result) but this path will never *query* them.
+        """
         batch: list[Contact] = []
         for c in self.shortlist():
-            if c.id_hex in self.queried:
+            if c.id_hex in self.queried or (exclude is not None and c.id_hex in exclude):
                 continue
             batch.append(c)
             if len(batch) >= self.alpha:
@@ -594,6 +725,7 @@ def iterative_lookup(
     alpha: int = DEFAULT_ALPHA,
     tie_break=None,
     max_rounds: "int | None" = None,
+    claimed: "set | None" = None,
 ) -> LookupState:
     """Run a deterministic, alpha-bounded iterative Kademlia node lookup.
 
@@ -613,6 +745,10 @@ def iterative_lookup(
         so a misbehaving responder that keeps minting fresh strictly-closer
         contacts cannot force unbounded rounds. An honest lookup converges in
         ~log2(N) rounds, far below this cap.
+      claimed: an optional **shared** id-hex set implementing S/Kademlia disjoint
+        paths (#70): ids already in it are never queried by this lookup, and every
+        id this lookup queries is added to it. :func:`disjoint_lookup` passes one
+        set to ``d`` sequential lookups, keeping their intermediates node-disjoint.
 
     Returns the terminal :class:`LookupState`; ``state.result()`` is the ``k``
     closest contacts found.
@@ -651,12 +787,14 @@ def iterative_lookup(
 
     while True:
         best_before = state.closest_seen()
-        batch = state.next_batch()
+        batch = state.next_batch(exclude=claimed)
         if not batch:
             break  # nothing left unqueried — converged.
 
         for contact in batch:
             state.queried.add(contact.id_hex)
+            if claimed is not None:
+                claimed.add(contact.id_hex)
             replies = list(responder(contact, state.target))
             state.add(replies)
 
@@ -686,3 +824,110 @@ def iterative_lookup(
             break
 
     return state
+
+
+# -- disjoint-path lookup (#70, S/Kademlia §3.3) ----------------------------------
+#
+# One controlled neighbourhood answering FIND_NODE must not be able to decide a
+# lookup's result. Run ``d`` iterative lookups whose *queried* node sets are kept
+# pairwise disjoint (a shared claim set — each node is an intermediate for at most
+# one path), then accept only contacts that ``quorum`` independent paths agree on.
+# An adversary who fully controls every node one path happens to query can inject
+# arbitrary fake near-target contacts into THAT path — but the other paths never
+# ask its nodes, so the fakes stay below quorum and are discarded.
+
+
+@dataclass
+class DisjointLookup:
+    """The terminal state of a ``d``-path disjoint lookup (deterministic).
+
+    ``paths`` holds one :class:`LookupState` per path (their ``queried`` sets are
+    pairwise disjoint by construction); :meth:`agreed` is the quorum-filtered
+    answer. ``result()`` on an individual path remains available for diagnostics.
+    """
+
+    target: bytes
+    paths: "list[LookupState]"
+    quorum: int
+    k: int = DEFAULT_K
+    tie_break: object = None
+
+    def agreed(self) -> list[Contact]:
+        """The ≤ ``k`` closest contacts reported by ≥ ``quorum`` disjoint paths.
+
+        A contact "reported by a path" means it appears in that path's ``result()``
+        (its k-closest). Sorted closest-first with the same deterministic tie-break
+        discipline as :meth:`RoutingTable.closest`.
+        """
+        tb = self.tie_break if self.tie_break is not None else (lambda c: c.id_hex)
+        votes: dict = {}
+        for st in self.paths:
+            for c in st.result():
+                entry = votes.get(c.id_hex)
+                if entry is None:
+                    votes[c.id_hex] = [c, 1]
+                else:
+                    entry[1] += 1
+        winners = [c for c, n in votes.values() if n >= self.quorum]
+        winners.sort(key=lambda c: (xor_distance(c.node_id, self.target), tb(c)))
+        return winners[: self.k]
+
+
+def disjoint_lookup(
+    target: "bytes | str",
+    seeds,
+    responder,
+    *,
+    d: int = DEFAULT_D,
+    quorum: int = DEFAULT_QUORUM,
+    k: int = DEFAULT_K,
+    alpha: int = DEFAULT_ALPHA,
+    tie_break=None,
+    max_rounds: "int | None" = None,
+) -> DisjointLookup:
+    """Run ``d`` node-disjoint iterative lookups and quorum-filter the result.
+
+    Seeds are deduplicated, ordered closest-first (deterministic tie-break), and
+    dealt round-robin across the ``d`` paths, so every path starts from a distinct
+    slice of the neighbourhood. The paths run sequentially over one shared claim
+    set: an id queried by an earlier path is *never queried again* by a later one
+    (node-disjoint intermediates — Castro et al.), though later paths may still
+    *learn of* it from replies. ``DisjointLookup.agreed()`` returns only contacts
+    that ≥ ``quorum`` paths independently converged on.
+
+    Deterministic: no RNG, no clock; the responder is injected exactly as in
+    :func:`iterative_lookup`. With ``d=1, quorum=1`` this degenerates to a plain
+    iterative lookup.
+    """
+    if not isinstance(d, int) or isinstance(d, bool) or d < 1:
+        raise ValueError("d must be a positive int")
+    if not isinstance(quorum, int) or isinstance(quorum, bool) or not (1 <= quorum <= d):
+        raise ValueError("quorum must be an int in [1, d]")
+    tgt = _as_id_bytes(target)
+    tb = tie_break if tie_break is not None else (lambda c: c.id_hex)
+
+    # Dedup (first occurrence wins) then deterministic closest-first ordering.
+    unique: dict = {}
+    for s in seeds:
+        unique.setdefault(s.id_hex, s)
+    ordered = sorted(unique.values(), key=lambda c: (xor_distance(c.node_id, tgt), tb(c)))
+
+    path_seeds: "list[list[Contact]]" = [[] for _ in range(d)]
+    for i, s in enumerate(ordered):
+        path_seeds[i % d].append(s)
+
+    claimed: set = set()
+    paths = [
+        iterative_lookup(
+            tgt,
+            path_seeds[i],
+            responder,
+            k=k,
+            alpha=alpha,
+            tie_break=tie_break,
+            max_rounds=max_rounds,
+            claimed=claimed,
+        )
+        for i in range(d)
+    ]
+    return DisjointLookup(target=tgt, paths=paths, quorum=quorum, k=k, tie_break=tie_break)
