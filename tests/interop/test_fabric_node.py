@@ -205,3 +205,109 @@ def test_honest_fork_bump_is_not_reportable():
     a = _signed_head(priv, feed, "aa" * 32, 3, 0)
     rewritten = _signed_head(priv, feed, "bb" * 32, 3, 1)       # fork bumped
     assert prove_equivocation(a, rewritten, "did:key:watcher") is None
+
+
+# ── #91: range-multiproof catch-up — pull only the missing slice ─────────────
+
+def _weave_n(node, n, prefix):
+    async def go():
+        for i in range(n):
+            await node.weave({"kind": "knowledge", "title": f"{prefix}-{i}",
+                              "body": "x", "author": node.pub})
+    run(go())
+
+
+@pytest.mark.interop
+def test_late_joiner_pulls_only_the_missing_range():
+    from knitweb.p2p import wire
+
+    async def scenario():
+        a = FabricNode()
+        b = FabricNode()
+        async with a, b:
+            for i in range(48):
+                await b.weave({"kind": "knowledge", "title": f"k-{i}",
+                               "body": "x", "author": b.pub})
+            # cold start: full snapshot, cursor primed on b's head
+            added = await a.sync_from(b.address)
+            assert added == 48 and a.state_root == b.state_root
+            assert a._sync_cursors[b.pub] == 48
+
+            # already converged: O(1) — no records pulled
+            assert await a.sync_from(b.address) == 0
+
+            for i in range(4):
+                await b.weave({"kind": "knowledge", "title": f"late-{i}",
+                               "body": "x", "author": b.pub})
+            # incremental: exactly the 4 missing records over a verified slice
+            added = await a.sync_from(b.address)
+            assert added == 4
+            assert a.state_root == b.state_root
+            assert a._sync_cursors[b.pub] == 52
+            assert a.metrics.get("sync_range_verified") == 1
+
+            # O(count + log n), not O(total): the range reply is far smaller
+            # than the full snapshot for the same converged set
+            full = wire.write_frame_bytes(b._serve_sync())
+            slice_ = wire.write_frame_bytes(b._serve_sync_range({"start": 48, "count": 4}))
+            assert len(slice_) < len(full) / 5
+
+    run(scenario())
+
+
+@pytest.mark.interop
+def test_forged_slice_is_rejected_and_server_penalised():
+    async def scenario():
+        a = FabricNode()
+        b = FabricNode()
+        async with a, b:
+            for i in range(12):
+                await b.weave({"kind": "knowledge", "title": f"k-{i}",
+                               "body": "x", "author": b.pub})
+            await a.sync_from(b.address)                      # prime the cursor
+            for i in range(3):
+                await b.weave({"kind": "knowledge", "title": f"late-{i}",
+                               "body": "x", "author": b.pub})
+
+            # tamper the served slice: entries no longer match the signed head
+            real_serve = b._serve_sync_range
+            def forged(msg):
+                resp = real_serve(msg)
+                if resp.get("kind") == "fabric-sync-range-data" and resp["entries"]:
+                    resp["entries"][0] = dict(resp["entries"][0], title="FORGED")
+                return resp
+            b._serve_sync_range = forged
+
+            root_before = a.state_root
+            try:
+                await a.sync_from(b.address)
+                assert False, "forged slice must not be accepted"
+            except Exception as exc:
+                assert "multiproof" in str(exc)
+            assert a.state_root == root_before               # nothing woven
+            assert a.reputation.score(b.pub) > 0             # STALE_OR_FORGED_PROOF landed
+            assert a.metrics.get("sync_range_rejected") == 1
+
+    run(scenario())
+
+
+@pytest.mark.interop
+def test_cold_start_and_legacy_peer_fall_back_to_full_snapshot():
+    async def scenario():
+        a = FabricNode()
+        b = FabricNode()
+        async with a, b:
+            for i in range(6):
+                await b.weave({"kind": "knowledge", "title": f"k-{i}",
+                               "body": "x", "author": b.pub})
+            # legacy peer: pretend b does not speak fabric-sync-head
+            real_route = b._route
+            def legacy(kind, msg, source_id=None):
+                if kind in ("fabric-sync-head", "fabric-sync-range"):
+                    return {"kind": "error", "code": "unknown-kind", "message": str(kind)}
+                return real_route(kind, msg, source_id)
+            b._route = legacy
+            added = await a.sync_from(b.address)             # falls back, converges
+            assert added == 6 and a.state_root == b.state_root
+
+    run(scenario())
