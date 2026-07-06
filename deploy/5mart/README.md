@@ -14,6 +14,7 @@ connected whole with the shared hop-menu (no dead ends).
 | `/molgang/` | `Knitweb/molgang` → `web/` (chemistry game) |
 | `/quantum/` | `Knitweb/k.nitweb.art` → `quantum/` (QuantumV) |
 | `/chemfield/` | `Knitweb/chemfield` → `web/` (interactive 3D steel-slag logo) |
+| `/dapp/` | `Knitweb/molgang` → `serverless/web/` (pure-P2P MOLGANG — the engine in every tab, no backend) |
 | `/nav.js`   | the shared cross-host menu |
 
 ## Deploy (on the 5mart.ml host)
