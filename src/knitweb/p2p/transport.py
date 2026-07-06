@@ -117,6 +117,13 @@ class PeerAddress:
             mailbox = self.params.get("mailbox", "")
             base = self.params.get("base_url", "")
             return f"relay://{mailbox}@{base}"
+        if self.transport == "hp":
+            # hp://punch_id@rendezvous_base (#89). rendezvous_base is optional (a
+            # node may resolve punch ids through a rendezvous it already holds);
+            # when absent the form is hp://punch_id@ so it still round-trips.
+            punch_id = self.params.get("punch_id", "")
+            base = self.params.get("rendezvous", "")
+            return f"hp://{punch_id}@{base}"
         # Generic fallback so unknown transports still round-trip to a string.
         joined = ",".join(f"{k}={v}" for k, v in sorted(self.params.items()))
         return f"{self.transport}://{joined}"
@@ -141,6 +148,14 @@ def parse_peer_uri(uri: str) -> PeerAddress:
         return PeerAddress(
             transport="relay", params={"mailbox": mailbox, "base_url": base}
         )
+    if scheme == "hp":
+        punch_id, sep, base = rest.partition("@")
+        if not sep or not punch_id:
+            raise ValueError(f"hp peer uri must be hp://punch_id@rendezvous_base: {uri!r}")
+        params = {"punch_id": punch_id}
+        if base:
+            params["rendezvous"] = base
+        return PeerAddress(transport="hp", params=params)
     raise ValueError(f"unknown peer transport scheme: {scheme!r}")
 
 
