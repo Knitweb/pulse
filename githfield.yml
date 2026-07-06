@@ -1,0 +1,14 @@
+# githfield.yml — links this repo's docs & backlog into githfield
+field:   pulse
+name:    Pulse
+accent:  "#6aa3d6"
+summary: The Knitweb engine — settlement ledger, PoUW-minted PLS, p2p mesh
+homepage: https://knitweb.art
+project:  https://github.com/orgs/Knitweb/projects/2
+backlog:
+  labels: []
+  group_by: ""
+docs:
+  - { title: "Architecture", url: "https://github.com/Knitweb/docs/blob/main/pulse/ARCHITECTURE.md", stage: reference }
+  - { title: "Overview",     url: "https://github.com/Knitweb/docs/blob/main/pulse/overview.md",     stage: reference }
+  - { title: "Assessment",   url: "https://github.com/Knitweb/docs/blob/main/pulse/assessment.md",   stage: reference }
