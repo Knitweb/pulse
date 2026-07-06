@@ -39,6 +39,7 @@ MAP=(
   "molgang|web|molgang"
   "k.nitweb.art|quantum|quantum"
   "chemfield|web|chemfield"
+  "molgang|serverless/web|dapp"
 )
 
 STAGE="$WORK/stage"
@@ -71,5 +72,5 @@ rsync -a --delete "$STAGE/" "$WEBROOT/"
 
 [ -n "$RELOAD" ] && { say "reloading web server"; eval "$RELOAD"; }
 
-printf '\n\033[32m✓ 5mart.ml is in sync\033[0m — served: / · /wnw · /lens · /molgang · /quantum · /chemfield\n'
+printf '\n\033[32m✓ 5mart.ml is in sync\033[0m — served: / · /wnw · /lens · /molgang · /quantum · /chemfield · /dapp\n'
 say "clean up: rm -rf $WORK   (or keep it to speed up the next sync)"
