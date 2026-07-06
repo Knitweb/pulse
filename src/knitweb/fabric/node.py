@@ -74,7 +74,10 @@ from ..p2p.inventory import (
 )
 from ..p2p import identity
 from ..p2p.mesh import GRAFT, PRUNE, IHAVE, IWANT, Gossipsub
+from ..p2p.policing import police_equivocation_report
 from ..p2p.reconcile import ReconcileSession
+from ..p2p.wire import WireError, equivocation_report_from_record
+from .equivocation import EquivocationReport
 from .items import web_state_root
 from .web import Web
 from ..p2p.node import PeerAddress, StaticPeerBook
@@ -202,6 +205,10 @@ class FabricNode(BaseNode):
         self.pub = crypto.public_from_private(priv)
         self.web = Web()
         self.peerbook = StaticPeerBook()
+        # #90: verified equivocation evidence, keyed by offending feed key — kept
+        # OUTSIDE the web (evidence, not knowledge; it must not move the state
+        # root) and re-servable so the ban propagates as portable proof.
+        self.equivocation_reports: dict[str, EquivocationReport] = {}
         # The single load-bearing new piece for lazy relay (#64): a per-node
         # CID -> verbatim signed-envelope frame bytes store. The frame is the
         # exact ``write_frame_bytes`` of the ``fabric-record`` envelope we wove
@@ -1037,6 +1044,25 @@ class FabricNode(BaseNode):
 
     # -- ingestion --------------------------------------------------------
 
+    def _police_report_record(self, record: dict) -> bool:
+        """Verify a gossiped equivocation report from its bytes; ban on success (#90).
+
+        Structural parse errors and unverifiable reports are IGNORED (never a
+        penalty on hearsay — mirroring ``police_equivocation_report``); a report
+        that verifies bans ``report.offender`` in the shared reputation ledger,
+        is kept in :attr:`equivocation_reports` as portable evidence, and bumps
+        the ``equivocations_detected`` metric.
+        """
+        try:
+            report = equivocation_report_from_record(record)
+        except WireError:
+            return False
+        if not police_equivocation_report(self.reputation, report):
+            return False
+        self.equivocation_reports[report.offender] = report
+        self.metrics.incr("equivocations_detected")
+        return True
+
     def _ingest_signed(self, item, *, is_edge: "bool | None" = None) -> bool:
         """Verify an author-signed record envelope and weave it. True if new.
 
@@ -1064,6 +1090,22 @@ class FabricNode(BaseNode):
             raise FabricNodeError("record must be a map")
         if not crypto.verify(author, _record_signable(record), sig):
             raise FabricNodeError("invalid author signature on fabric record")
+        # ── #90 equivocation quarantine ─────────────────────────────────────
+        # A signed ``equivocation-report`` record is EVIDENCE, not knowledge: it is
+        # verified from its own bytes and policed (Offense.EQUIVOCATION is a full-
+        # threshold ban on the offending feed key), stored for re-gossip, and NOT
+        # woven — evidence must never move the web state root. Honest fork-bumped
+        # rewrites can never verify as a report (check_conflict requires the same
+        # fork), so legitimate truncate-and-rewrite is structurally exempt.
+        if record.get("kind") == "equivocation-report":
+            self._police_report_record(record)
+            return False
+        # Records authored by a key with a PROVEN equivocation are quarantined:
+        # refused without weaving (no exception — the relaying peer is innocent;
+        # the offense already landed on the author's key via the report).
+        if self.reputation.is_banned(author):
+            self.metrics.incr("records_quarantined")
+            return False
         if is_edge is None:
             # #163: route on the SIGNED record, never the relayer-controlled,
             # UNSIGNED envelope item['kind'] — that flip re-opened the partition.

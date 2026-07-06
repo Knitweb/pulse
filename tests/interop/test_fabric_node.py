@@ -125,3 +125,83 @@ def test_gossiped_frames_bounded_while_authored_survive():
             assert gcids[-1] in b._frames and gcids[0] not in b._frames  # LRU: newest kept, oldest evicted
 
     asyncio.run(scenario())
+
+
+# ── #90: equivocation quarantine on the fabric gossip path ───────────────────
+
+def _signed_head(priv, feed, root, length, fork):
+    from knitweb.fabric.feed import FeedHead
+    tmp = FeedHead(feed=feed, root=root, length=length, fork=fork, sig="")
+    return FeedHead(feed=feed, root=root, length=length, fork=fork,
+                    sig=crypto.sign(priv, tmp.signable()))
+
+
+def _report_record(reporter="did:key:watcher"):
+    """A verified equivocation report record + the offender's keypair."""
+    from knitweb.fabric.equivocation import prove_equivocation
+    priv, feed = crypto.generate_keypair()
+    a = _signed_head(priv, feed, "aa" * 32, 3, 0)
+    b = _signed_head(priv, feed, "bb" * 32, 3, 0)
+    report = prove_equivocation(a, b, reporter)
+    assert report is not None
+    return report.to_record(), priv, feed
+
+
+@pytest.mark.interop
+def test_equivocation_report_bans_offender_and_quarantines_their_records():
+    node = FabricNode()
+    record, offender_priv, offender_feed = _report_record()
+    carrier_priv, _carrier_pub = crypto.generate_keypair()
+
+    # evidence arrives as a normal signed fabric record — verified, policed, NOT woven
+    from knitweb.fabric.node import _record_signable
+    env = {"kind": "fabric-record", "author": crypto.public_from_private(carrier_priv),
+           "record": record,
+           "sig": crypto.sign(carrier_priv, _record_signable(record))}
+    root_before = web_state_root(node.web)
+    assert node._ingest_signed(env) is False
+    assert web_state_root(node.web) == root_before      # evidence never moves the state root
+    assert node.reputation.is_banned(offender_feed)
+    assert offender_feed in node.equivocation_reports
+    assert node.metrics.get("equivocations_detected") == 1
+
+    # any record AUTHORED by the banned key is quarantined: refused, not woven, no raise
+    bad = {"kind": "molgang-term", "term": "H2O"}
+    bad_env = {"kind": "fabric-record", "author": offender_feed, "record": bad,
+               "sig": crypto.sign(offender_priv, _record_signable(bad))}
+    assert node._ingest_signed(bad_env) is False
+    assert web_state_root(node.web) == root_before
+    assert node.metrics.get("records_quarantined") == 1
+
+
+@pytest.mark.interop
+def test_stored_report_reverifies_trustlessly():
+    from knitweb.fabric.equivocation import verify_equivocation_report
+    node = FabricNode()
+    record, _priv, feed = _report_record()
+    assert node._police_report_record(record) is True
+    assert verify_equivocation_report(node.equivocation_reports[feed])
+    # policing the same evidence twice is idempotent on the ban, no double count
+    node._police_report_record(record)
+    assert node.reputation.is_banned(feed)
+
+
+@pytest.mark.interop
+def test_unverifiable_report_is_ignored_never_penalized():
+    node = FabricNode()
+    record, _priv, feed = _report_record()
+    record = dict(record)
+    record["head_b"] = dict(record["head_b"], root="cc" * 32)   # break the evidence
+    assert node._police_report_record(record) is False
+    assert not node.reputation.is_banned(feed)
+    assert node.metrics.get("equivocations_detected") in (0, None)
+
+
+@pytest.mark.interop
+def test_honest_fork_bump_is_not_reportable():
+    """A legitimate truncate-and-rewrite bumps the fork counter → no equivocation."""
+    from knitweb.fabric.equivocation import prove_equivocation
+    priv, feed = crypto.generate_keypair()
+    a = _signed_head(priv, feed, "aa" * 32, 3, 0)
+    rewritten = _signed_head(priv, feed, "bb" * 32, 3, 1)       # fork bumped
+    assert prove_equivocation(a, rewritten, "did:key:watcher") is None
