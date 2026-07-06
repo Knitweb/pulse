@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import asyncio
 import random as _random_mod
+from typing import Callable
 from collections import deque
 
 from ..core import canonical, crypto
@@ -93,6 +94,11 @@ from ..p2p import wire
 from ..p2p.wire import WireError
 
 DEFAULT_DIFFUSE_MAX_MS = 10
+# #93: bounded anti-entropy target budget. `neighbours` XOR-near peers (from the
+# routing table when wired) + `fanout` random peers per cycle — an integer bound
+# independent of the total peer count.
+DEFAULT_AE_NEIGHBOURS = 8
+DEFAULT_AE_FANOUT = 3
 
 __all__ = ["FabricNode", "FabricNodeError", "WEB_TOPIC"]
 
@@ -199,6 +205,10 @@ class FabricNode(BaseNode):
         diffuse_max_ms: int = DEFAULT_DIFFUSE_MAX_MS,
         diffuse_seed: int | None = None,
         diffuse_sleep=None,
+        anti_entropy_neighbours: int = DEFAULT_AE_NEIGHBOURS,
+        anti_entropy_fanout: int = DEFAULT_AE_FANOUT,
+        anti_entropy_seed: int | None = None,
+        neighbour_source: "Callable[[], list[PeerAddress]] | None" = None,
     ) -> None:
         super().__init__(
             host=host,
@@ -350,6 +360,19 @@ class FabricNode(BaseNode):
         # an operator explicitly disables it.
         self._diffuse_max_ms = max(0, int(diffuse_max_ms))
         self._diffuse_rng = _random_mod.Random(diffuse_seed)
+        # #93 bounded anti-entropy: per-cycle targets = up to `neighbours` XOR-near
+        # peers (from the injected routing-table source, if any) + a bounded random
+        # fan-out, so reconvergence cost is O(neighbours+fanout), NOT O(total peers).
+        # A seeded RNG keeps the fan-out deterministic under the virtual clock; it
+        # only chooses WHICH peers to pull, never touching a hash/signed path. A
+        # peer set at or below the budget is used whole (byte-identical to the old
+        # peerbook.all() behaviour for a classroom-scale web).
+        if anti_entropy_neighbours < 0 or anti_entropy_fanout < 0:
+            raise ValueError("anti-entropy neighbours/fanout must be >= 0")
+        self._ae_neighbours = anti_entropy_neighbours
+        self._ae_fanout = anti_entropy_fanout
+        self._neighbour_source = neighbour_source
+        self._ae_rng = _random_mod.Random(anti_entropy_seed)
         self._diffuse_sleep = diffuse_sleep if diffuse_sleep is not None else asyncio.sleep
 
     # -- server lifecycle -------------------------------------------------
@@ -428,13 +451,46 @@ class FabricNode(BaseNode):
             sleep=sleep,
         )
 
+    def _select_ae_targets(self, all_peers: "list[PeerAddress]") -> "list[PeerAddress]":
+        """Bounded anti-entropy target set (#93): up to `neighbours` XOR-near peers
+        + `fanout` random others, capped regardless of total peer count.
+
+        A set at or below the budget is returned whole (order-preserving) so a
+        small/classroom web behaves exactly as before. Above the budget: take the
+        injected routing-table neighbours first (deduped, address-keyed), then fill
+        the fan-out with a deterministic seeded sample of the remaining peers.
+        """
+        budget = self._ae_neighbours + self._ae_fanout
+        if budget <= 0 or len(all_peers) <= budget:
+            return list(all_peers)
+        by_key = {(p.transport, p.host, p.port, tuple(sorted(p.params.items()))): p
+                  for p in all_peers}
+        chosen: "list[PeerAddress]" = []
+        seen: set = set()
+
+        def _key(p):
+            return (p.transport, p.host, p.port, tuple(sorted(p.params.items())))
+
+        if self._neighbour_source is not None:
+            for p in self._neighbour_source():
+                k = _key(p)
+                if k in by_key and k not in seen and len(chosen) < self._ae_neighbours:
+                    chosen.append(by_key[k])
+                    seen.add(k)
+        remaining = [p for p in all_peers if _key(p) not in seen]
+        want = budget - len(chosen)
+        if want > 0 and remaining:
+            chosen.extend(self._ae_rng.sample(remaining, min(want, len(remaining))))
+        return chosen
+
     def _anti_entropy_rounds(
         self, peers: "list[PeerAddress] | None"
     ) -> "list[SyncRound]":
         async def sync_round() -> int:
-            targets = (
+            all_peers = (
                 peers if peers is not None else list(self.peerbook.all().values())
             )
+            targets = self._select_ae_targets(all_peers)
             if not targets:
                 return 0
             pulled = 0
