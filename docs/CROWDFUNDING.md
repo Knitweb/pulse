@@ -77,6 +77,13 @@ outcome_cid, authority, mode (release|refund), total_amount, entry_count, settle
 - `execute_settlement(settlement_att, ..., escrow, payees, *, applied=None)` — move PLS escrow→payee
   (idempotent via `applied`); `validate_payout(knit, settlement_att, ..., payee_pub)` — payee-side
   authorisation; `SettlementSession(...)` — resumable, payee-validated escrow-push (`.step`/`.run`).
+- `RefundClaimDesk(settlement_att, ..., escrow, *, claimed=None)` — **Model-B payee-pull** refunds
+  (#202): a recipient claims its own audited entry whenever it comes online, without every payee
+  being online at once. `.owed(addr)` lists unclaimed entries; `.claim(payee, ts)` pays only the
+  entries owed to `payee.address` (forge-proof — a claim needs the payee's co-sign and matching
+  proposal) and is claim-once per `(settlement_cid, pledge_cid)` via the persistable `claimed` set;
+  unclaimed refunds stay claimable indefinitely (MVP). Applied Knits reconcile against
+  `settlement_root`.
 
 ## Settlement policy (optional, signed) — #203
 
