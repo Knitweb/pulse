@@ -23,9 +23,12 @@ from ...core import crypto
 from ...ledger import knitweb as _kw
 from ...ledger.knit import Knit
 from ...ledger.node import AccountNode
-from .campaign import audit_settlement, settlement_entries
+from .campaign import audit_forfeiture, audit_settlement, forfeiture_entries, settlement_entries
 
-__all__ = ["EscrowError", "execute_settlement", "validate_payout", "SettlementSession"]
+__all__ = [
+    "EscrowError", "execute_settlement", "execute_forfeiture", "validate_payout",
+    "SettlementSession",
+]
 
 
 class EscrowError(Exception):
@@ -127,6 +130,63 @@ def execute_settlement(
         knits.append(knit)
     if applied is not None:
         applied.add(settlement_cid)
+    return knits
+
+
+def execute_forfeiture(
+    forfeiture_att,
+    outcome_record: dict,
+    campaign_record: dict,
+    pledges: List[dict],
+    claimed_cids: List[str],
+    escrow: AccountNode,
+    forfeit_account: AccountNode,
+    *,
+    timestamp: int,
+    symbol: str = "PLS",
+    applied: set | None = None,
+) -> List[Knit]:
+    """Sweep refunds still unclaimed at the forfeiture time to the campaign's forfeiture account.
+
+    The mirror of :func:`execute_settlement` for the residual: it audits the signed forfeiture
+    instruction (validly authority-signed AND recomputes from the pledges + ``claimed_cids`` +
+    ``as_of``) before moving any value, then transfers each unclaimed refund escrow→forfeiture
+    account. ``forfeit_account`` must be the policy's ``forfeit_to`` address. ``applied`` gives the
+    same one-shot idempotency as settlement execution. Because the entries only cover refunds NOT
+    in ``claimed_cids``, a pledger who already pulled their refund is never swept.
+
+    Raises :class:`ValueError` if the forfeiture does not audit, or :class:`EscrowError` if it was
+    already applied, the forfeiture account is missing/mismatched or a self-transfer/other network,
+    or the escrow is underfunded for the residual.
+    """
+    if not audit_forfeiture(forfeiture_att, outcome_record, campaign_record, pledges, claimed_cids):
+        raise ValueError("forfeiture does not audit; refusing to move value")
+
+    forfeiture_cid = forfeiture_att.cid
+    if applied is not None and forfeiture_cid in applied:
+        raise EscrowError(f"forfeiture {forfeiture_cid} already executed")
+
+    now = forfeiture_att.record["as_of"]
+    entries = forfeiture_entries(outcome_record, campaign_record, pledges, claimed_cids, now)
+    total = sum(amount for _cid, _payee, amount in entries)
+
+    # Validate the single forfeiture payee + funding up front (all-or-nothing), same invariants as
+    # execute_settlement: a matching account, sender != receiver, same network, enough funds.
+    forfeit_to = forfeiture_att.record["forfeit_to"]
+    if forfeit_account.address != forfeit_to:
+        raise EscrowError(f"forfeit account address mismatch (expected {forfeit_to})")
+    if forfeit_to == escrow.address:
+        raise EscrowError("the forfeiture account may not be the escrow itself (self-transfer)")
+    if forfeit_account.network != escrow.network:
+        raise EscrowError("forfeiture account is on a different network than the escrow")
+    if escrow.balance(symbol) < total:
+        raise EscrowError(f"escrow has {escrow.balance(symbol)} {symbol}, forfeiture needs {total}")
+
+    knits: List[Knit] = []
+    for index, (_cid, _payee, amount) in enumerate(entries):
+        knits.append(escrow.transfer_to(forfeit_account, symbol, amount, timestamp + index))
+    if applied is not None:
+        applied.add(forfeiture_cid)
     return knits
 
 
