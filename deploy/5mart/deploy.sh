@@ -38,6 +38,7 @@ MAP=(
   "lens|web|lens"
   "molgang|web|molgang"
   "k.nitweb.art|quantum|quantum"
+  "chemfield|web|chemfield"
 )
 
 STAGE="$WORK/stage"
@@ -54,8 +55,9 @@ for entry in "${MAP[@]}"; do
   say "fetch $repo/$sub → /$dest"
   src="$WORK/src/$repo"
   if [ -d "$src/.git" ]; then git -C "$src" fetch -q origin "$BRANCH" && git -C "$src" reset -q --hard "origin/$BRANCH"
-  else git clone -q --depth 1 --branch "$BRANCH" "$ORG/$repo" "$src"; fi
-  [ -d "$src/$sub" ] || die "$repo has no $sub/ folder"
+  else git clone -q --depth 1 --branch "$BRANCH" "$ORG/$repo" "$src" \
+    || { say "skip $repo (clone failed — repo missing or unreachable)"; continue; }; fi
+  [ -d "$src/$sub" ] || { say "skip $repo (no $sub/ folder)"; continue; }
   mkdir -p "$STAGE/$dest"
   rsync -a --delete "$src/$sub/" "$STAGE/$dest/"
   # ensure a nav.js is reachable next to the property's pages
@@ -69,5 +71,5 @@ rsync -a --delete "$STAGE/" "$WEBROOT/"
 
 [ -n "$RELOAD" ] && { say "reloading web server"; eval "$RELOAD"; }
 
-printf '\n\033[32m✓ 5mart.ml is in sync\033[0m — served: / · /wnw · /lens · /molgang · /quantum\n'
+printf '\n\033[32m✓ 5mart.ml is in sync\033[0m — served: / · /wnw · /lens · /molgang · /quantum · /chemfield\n'
 say "clean up: rm -rf $WORK   (or keep it to speed up the next sync)"

@@ -13,6 +13,7 @@ connected whole with the shared hop-menu (no dead ends).
 | `/lens/`    | `Knitweb/lens` → `web/` (circuit library) |
 | `/molgang/` | `Knitweb/molgang` → `web/` (chemistry game) |
 | `/quantum/` | `Knitweb/k.nitweb.art` → `quantum/` (QuantumV) |
+| `/chemfield/` | `Knitweb/chemfield` → `web/` (interactive 3D steel-slag logo) |
 | `/nav.js`   | the shared cross-host menu |
 
 ## Deploy (on the 5mart.ml host)
