@@ -7,7 +7,7 @@ homepage: https://knitweb.art
 project:  https://github.com/orgs/Knitweb/projects/2
 backlog:
   labels: []
-  group_by: ""
+  group_by: "MoSCoW: "     # bucket the backlog by priority so it reads as a triaged list
 docs:
   - { title: "Architecture", url: "https://github.com/Knitweb/docs/blob/main/pulse/ARCHITECTURE.md", stage: reference }
   - { title: "Overview",     url: "https://github.com/Knitweb/docs/blob/main/pulse/overview.md",     stage: reference }
