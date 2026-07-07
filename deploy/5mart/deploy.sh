@@ -40,6 +40,8 @@ MAP=(
   "k.nitweb.art|quantum|quantum"
   "chemfield|web|chemfield"
   "molgang|serverless/web|dapp"
+  "https://github.com/FinField/feed|studiosite|studio"
+  "https://github.com/FinField/feed|studiosite|fin"
 )
 
 STAGE="$WORK/stage"
@@ -54,9 +56,14 @@ cp "$(dirname "$0")/robots.txt" "$STAGE/robots.txt" 2>/dev/null || true
 for entry in "${MAP[@]}"; do
   IFS='|' read -r repo sub dest <<<"$entry"
   say "fetch $repo/$sub → /$dest"
-  src="$WORK/src/$repo"
+  # repo may be a bare name (cloned from $ORG) or an absolute git URL (other orgs)
+  case "$repo" in
+    *://*) clone_url="$repo"; slug="$(printf '%s' "$repo" | tr -c 'A-Za-z0-9' '_')" ;;
+    *)     clone_url="$ORG/$repo"; slug="$repo" ;;
+  esac
+  src="$WORK/src/$slug"
   if [ -d "$src/.git" ]; then git -C "$src" fetch -q origin "$BRANCH" && git -C "$src" reset -q --hard "origin/$BRANCH"
-  else git clone -q --depth 1 --branch "$BRANCH" "$ORG/$repo" "$src" \
+  else git clone -q --depth 1 --branch "$BRANCH" "$clone_url" "$src" \
     || { say "skip $repo (clone failed — repo missing or unreachable)"; continue; }; fi
   [ -d "$src/$sub" ] || { say "skip $repo (no $sub/ folder)"; continue; }
   mkdir -p "$STAGE/$dest"
