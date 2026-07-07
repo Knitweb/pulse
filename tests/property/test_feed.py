@@ -147,3 +147,89 @@ def test_random_append_log_always_verifies():
         assert verify_head(head)
     assert verify_entries(head, feed.entries)
     assert head.length == 80
+
+
+# ---------------------------------------------------------------------------
+# Feed.extend — bulk append mints ONE head (fixes the O(n²) append run, #338)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.property
+def test_extend_matches_appending_one_at_a_time():
+    """A bulk extend is byte-identical to n separate appends: same root, length,
+    and signature — so the O(n) bulk path is a drop-in for the O(n²) loop."""
+    priv, _ = crypto.generate_keypair()
+    entries = [{"kind": "rec", "i": i, "v": f"row-{i}"} for i in range(50)]
+
+    loop = Feed(priv)
+    for e in entries:
+        h_loop = loop.append(e)
+
+    bulk = Feed(priv)
+    h_bulk = bulk.extend(entries)
+
+    assert bulk.length == loop.length == 50
+    # Same committed state — root/length/fork are deterministic (the signature is
+    # not, since ECDSA uses a random nonce; both heads are independently valid).
+    assert h_bulk.root == h_loop.root
+    assert h_bulk.length == h_loop.length and h_bulk.fork == h_loop.fork
+    assert verify_head(h_bulk) and verify_head(h_loop)
+    assert verify_entries(h_bulk, bulk.entries)
+    assert bulk.entries == loop.entries
+
+
+@pytest.mark.property
+def test_extend_mints_exactly_one_signature():
+    """extend signs once regardless of batch size (the whole point vs append)."""
+    priv, _ = crypto.generate_keypair()
+    calls = {"n": 0}
+    real_sign = crypto.sign
+    from knitweb.fabric import feed as feedmod
+
+    def counting_sign(*a, **k):
+        calls["n"] += 1
+        return real_sign(*a, **k)
+
+    feedmod.crypto.sign = counting_sign
+    try:
+        f = Feed(priv)
+        f.extend([{"kind": "rec", "i": i} for i in range(100)])
+    finally:
+        feedmod.crypto.sign = real_sign
+    assert calls["n"] == 1
+
+
+@pytest.mark.property
+def test_extend_empty_returns_head_over_current_state():
+    priv, _ = crypto.generate_keypair()
+    f = Feed(priv)
+    f.append({"kind": "rec", "i": 0})
+    h = f.extend([])
+    assert h.length == 1 and verify_head(h)
+
+
+@pytest.mark.property
+def test_extend_rejects_non_encodable_entry():
+    priv, _ = crypto.generate_keypair()
+    f = Feed(priv)
+    with pytest.raises((ValueError, TypeError)):
+        f.extend([{"ok": 1}, {"bad": 1.5}])   # float is not canonical-encodable
+    # the first (valid) entry was appended before the offender failed
+    assert f.length == 1
+    assert verify_entries(f.head(), f.entries)
+
+
+@pytest.mark.property
+def test_leaf_cache_stays_consistent_across_append_truncate_extend():
+    """The cached leaves must track entries exactly, or root() would diverge from
+    an independent recomputation (the equivocation checks depend on this)."""
+    priv, _ = crypto.generate_keypair()
+    from knitweb.fabric.feed import _root
+
+    f = Feed(priv)
+    f.extend([{"i": i} for i in range(20)])
+    assert f.root() == _root(f.entries)
+    f.truncate(12)
+    assert f.length == 12 and f.root() == _root(f.entries)
+    f.append({"i": 99})
+    assert f.root() == _root(f.entries)
+    assert verify_entries(f.head(), f.entries)

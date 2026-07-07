@@ -102,6 +102,9 @@ class Feed:
         self.feed = crypto.public_from_private(priv)
         self.fork = fork
         self._entries: list[dict] = []
+        # Cache each entry's Merkle leaf so root() is O(n) merkle over precomputed
+        # hashes instead of re-encoding + re-hashing every entry on every call.
+        self._leaves: list[bytes] = []
 
     @classmethod
     def create(cls) -> "Feed":
@@ -126,7 +129,7 @@ class Feed:
         return self._entries[index]
 
     def root(self) -> str:
-        return _root(self._entries)
+        return crypto.merkle_root(self._leaves).hex()
 
     def head(self) -> FeedHead:
         """Mint a signed head over the current state."""
@@ -135,12 +138,42 @@ class Feed:
         return FeedHead(feed=self.feed, root=root, length=self.length, fork=self.fork, sig=sig)
 
     def append(self, entry: dict) -> FeedHead:
-        """Append ``entry`` and return the new signed head."""
-        # Encode eagerly so a non-canonical-encodable entry is rejected at append
-        # time, not later at root() — keeps the log always-serializable.
-        canonical.encode(entry)
-        self._entries.append(entry)
+        """Append ``entry`` and return the new signed head.
+
+        Minting a head signs one commitment over the whole tree, so appending
+        entries one at a time is O(n) merkle + one sign *per call* (O(n²) + n signs
+        over a run). For a bulk publish use :meth:`extend`, which mints a single
+        head at the end.
+        """
+        self._push(entry)
         return self.head()
+
+    def extend(self, entries: list[dict]) -> FeedHead:
+        """Append every entry, then mint **one** signed head over the final state.
+
+        This is the bulk path: validating + appending n entries costs O(n) leaf
+        hashes and a single merkle-root + sign, versus n separate ``append`` calls
+        that re-root and re-sign after every entry (O(n²) hashes + n signatures —
+        e.g. a 93k-record publish that otherwise effectively hangs). Every entry is
+        still canonical-encoded, so a non-serializable entry is rejected before any
+        state changes when it is the first offender; entries already appended in
+        this call are kept (mirrors calling ``append`` in a loop). Returns the head
+        for the current state even when ``entries`` is empty (like ``head()``).
+        """
+        for entry in entries:
+            self._push(entry)
+        return self.head()
+
+    def _push(self, entry: dict) -> None:
+        """Validate + append one entry, caching its Merkle leaf.
+
+        Encodes eagerly so a non-canonical-encodable entry is rejected at append
+        time, not later at root() — keeps the log always-serializable — and reuses
+        those same bytes for the cached leaf (no double encode).
+        """
+        blob = canonical.encode(entry)
+        self._entries.append(entry)
+        self._leaves.append(crypto.sha256(blob))
 
     def truncate(self, length: int) -> FeedHead:
         """Legitimately drop back to ``length`` entries and bump the fork counter.
@@ -152,6 +185,7 @@ class Feed:
         if not 0 <= length <= self.length:
             raise ValueError(f"cannot truncate to {length} (length is {self.length})")
         del self._entries[length:]
+        del self._leaves[length:]
         self.fork += 1
         return self.head()
 
