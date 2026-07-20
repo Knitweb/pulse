@@ -79,6 +79,12 @@ shards) and stale-while-error, so nodes have a bootstrap origin that
 survives a GitHub outage. Trust-free: heads are signed and records
 content-addressed — a mirror cannot forge the feed.
 
+**Feed explorer** (`/api/feed/explorer.html`): "don't trust, verify" as a
+click — downloads every record and recomputes the Merkle root *in the tab*
+(a byte-exact JS twin of `knitweb.core.canonical` + the Merkle fold),
+compares it to the published head, and shows the records with a filter.
+The full 93k-record main feed verifies in ~9 s in-browser.
+
 The mirror also serves the signed **ops feed** (`/api/feed/ops/…` →
 `FinField/feed` `ops/`): integer-only `relay-status` snapshots published
 every 30 min by `tools/publish_ops_feed.py` under its own publisher key,
