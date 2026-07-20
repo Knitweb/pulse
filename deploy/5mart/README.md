@@ -65,6 +65,13 @@ the mailbox as fallback. Client binding: `knitweb.p2p.holepunch.HttpRendezvous`.
 default 120/min, fail-open; `fetch` stays unlimited so shared-IP households
 are never starved).
 
+**Live monitor** (`/api/relay/monitor.html`): the browser view of the
+network the relay lib was designed for — self-contained page polling
+`status.php` every 10 s (nodes, mailboxes, queue bytes, peer gossip,
+active limits). Keep the host-node's heartbeat fresh by curling
+`/api/relay/health` from any cron (e.g. every 5 min); each beat rolls the
+host head and warms the peer-status gossip cache.
+
 **Feed mirror** (`/api/feed/<path>`, `api/feed/index.php`): mirrors the
 signed FinField feed (`head.json`, `MANIFEST.json`, record shards) from
 GitHub raw with an on-disk cache (60 s for the moving heads, 600 s for
