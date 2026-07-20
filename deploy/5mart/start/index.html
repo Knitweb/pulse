@@ -38,7 +38,8 @@
 </head>
 <body>
 <h1>Your first five minutes</h1>
-<div class="sub">become a node · claim your place · watch the network react — no install, no account, no PII</div>
+<div class="sub">become a node · claim your place · watch the network react · bring the next — no install, no account, no PII</div>
+<div id="invited" class="dim" style="margin:-1rem 0 1.25rem"></div>
 
 <div class="step" id="s1">
   <h2><span class="n">1 ·</span> Become a node</h2>
@@ -80,6 +81,17 @@
   <div class="msg" id="m3"></div>
 </div>
 
+<div class="step" id="s4">
+  <h2><span class="n">4 ·</span> Bring the next node</h2>
+  <p class="dim" style="margin:.2rem 0 .4rem">Your invite link — no PII, no signup. Everyone who starts through
+  it counts as your recruit, and they see their own position in the line.</p>
+  <div class="row">
+    <input id="invite" readonly placeholder="claim your place first" style="flex:1;min-width:18rem">
+    <button id="copyinvite">Copy link</button>
+  </div>
+  <div class="msg" id="m4"></div>
+</div>
+
 <div class="grand" id="grand"></div>
 
 <script>
@@ -107,7 +119,47 @@ function render() {
     $("grand").textContent = "You are a node with a claimed place. Welcome to the field.";
     $("s3").classList.add("done");
     countryPulse();
+    ensureInvite();
   }
+  if (state.invite) {
+    $("invite").value = location.origin + "/start/?invite=" + state.invite;
+    const r = state.inviteRecruits || 0;
+    $("m4").innerHTML = '<span class="ok">' + r + " node" + (r === 1 ? "" : "s") +
+      " joined through your link</span>";
+    $("s4").classList.add("done");
+  }
+}
+
+// The ?invite= code a newcomer arrived with, redeemed once they have an address.
+const INCOMING = new URLSearchParams(location.search).get("invite");
+if (INCOMING && /^kw-[a-f0-9]{8}$/.test(INCOMING)) {
+  state.incoming = INCOMING; save();
+  document.getElementById("invited").textContent = "you were invited (" + INCOMING + ") — finish the steps to count as their recruit";
+}
+
+async function ensureInvite() {
+  if (state.invite || !state.addr) return;
+  try {
+    const r = await (await fetch("../api/invite/create", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({address: state.addr}),
+    })).json();
+    if (r.ok) { state.invite = r.code; state.inviteRecruits = r.recruits; save(); render(); }
+  } catch (e) { /* invite is a bonus; never blocks the quest */ }
+}
+
+async function redeemIncoming() {
+  if (!state.incoming || state.redeemed || !state.addr) return;
+  try {
+    const r = await (await fetch("../api/invite/redeem", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({code: state.incoming, address: state.addr}),
+    })).json();
+    if (r.ok) {
+      state.redeemed = true; save();
+      $("m1").innerHTML += ' · <span class="dim">you joined as recruit #' + r.your_position + "</span>";
+    }
+  } catch (e) { /* non-blocking */ }
 }
 
 $("saveaddr").onclick = () => {
@@ -115,7 +167,13 @@ $("saveaddr").onclick = () => {
   if (!/^pls1[a-z2-7]{20,64}$/.test(v)) {   // same grammar the faucet enforces
     $("m1").innerHTML = '<span class="bad">that does not look like a pls1… address</span>'; return;
   }
-  state.addr = v; save(); render();
+  state.addr = v; save(); render(); redeemIncoming();
+};
+
+$("copyinvite").onclick = () => {
+  if (!state.invite) return;
+  navigator.clipboard.writeText($("invite").value);
+  $("m4").innerHTML += ' <span class="ok">· copied</span>';
 };
 
 $("country").onchange = () =>
