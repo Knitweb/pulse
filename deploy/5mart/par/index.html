@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PAR — Pulse Augmented Reality · 5mart.ml/par</title>
+<meta name="description" content="PAR is the Pulse ledger's observation coin: minted only for verified, confirmed AR observations of the physical world. Quest 3/3S, phone or browser. Launch faucet: 150 places per country, then a waitlist.">
+<style>
+  :root{--bg:#0b0e14;--surface:#141922;--line:#262d3a;--text:#e6edf3;--muted:#8b95a5;
+    --accent:#c084fc;--accent2:#78a8ff;--gold:#f4c95d;--green:#5fd0a5;
+    --mono:'SF Mono',ui-monospace,'JetBrains Mono',Menlo,Consolas,monospace}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(1100px 700px at 72% -10%,#141026,#0b0e14);color:var(--text);
+    font-family:var(--mono);font-size:14px;line-height:1.6;max-width:900px;margin:0 auto;padding:22px}
+  a{color:var(--accent2);text-decoration:none} a:hover{text-decoration:underline}
+  .hero{padding:36px 0 20px;border-bottom:1px solid var(--line)}
+  .eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:var(--muted)}
+  h1{font-size:32px;font-weight:800;margin-top:8px} h1 span{color:var(--accent)}
+  h2{font-size:18px;margin:28px 0 10px}
+  .lede{color:var(--muted);max-width:640px;margin-top:12px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;margin:14px 0}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px}
+  .kv dt{color:var(--muted)} .kv dd{margin:0}
+  label{display:block;font-size:12px;color:var(--muted);margin:12px 0 4px}
+  input{width:100%;background:#0b0e14;border:1px solid var(--line);border-radius:8px;color:var(--text);
+    font-family:var(--mono);font-size:14px;padding:10px}
+  input:focus{outline:none;border-color:var(--accent)}
+  button{margin-top:14px;background:var(--accent);color:#0b0e14;border:none;border-radius:8px;
+    font-family:var(--mono);font-weight:700;font-size:14px;padding:10px 22px;cursor:pointer}
+  button:hover{filter:brightness(1.1)}
+  .result{margin-top:14px;padding:12px;border-radius:8px;border:1px solid var(--line);display:none;font-size:13px}
+  .result.ok{border-color:var(--green);display:block}
+  .result.wait{border-color:var(--gold);display:block}
+  .result.err{border-color:#e5534b;display:block}
+  .meter{color:var(--muted);font-size:12px;margin-top:8px}
+  footer{border-top:1px solid var(--line);margin-top:32px;padding-top:14px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<script src="nav.js"></script>
+<section class="hero">
+  <p class="eyebrow">pulse ledger · observation coin · proof-of-observation</p>
+  <h1>PAR <span>— Pulse Augmented Reality</span></h1>
+  <p class="lede">PAR rewards <strong>verified observations of the physical world</strong>.
+     A Quest 3/3S, phone or browser recognizes an object; the confirmed, signed,
+     geohash-anchored observation is peer-validated — and only then is PAR minted.
+     Raw camera frames never leave your personal pod; the fabric stores only the
+     signed, float-free record. No premine, no admin mint.</p>
+</section>
+
+<div class="card">
+  <dl class="kv">
+    <dt>Symbol</dt><dd>PAR</dd>
+    <dt>Issuance</dt><dd>proof-of-observation: minted only when a confirmed field observation passes peer validation; mint ≤ the PLS escrow that funded the bounty; hard supply cap</dd>
+    <dt>Earned by</dt><dd>wearers &amp; scanners: AR observation bounties, chemistry scans (element / material recognition feeding MOLGANG and ChemField)</dd>
+    <dt>Privacy</dt><dd>captures stay in your pod (access-controlled); the ledger sees only a signed record with a tamper-evident digest</dd>
+    <dt>Wallet grant</dt><dd>using the Pulse wallet opts your device in to contribute <strong>up to 49% of its GPU</strong> (vision inference, PQ quantum path sampling) — never a majority, revocable at one tap</dd>
+    <dt>Sister coin</dt><dd><a href="../pls/">PLS — the Pulse pay-token</a> for useful work</dd>
+  </dl>
+</div>
+
+<h2>Launch faucet — 150 places per country</h2>
+<p class="lede">Each country gets 150 granted faucet places; everyone after that joins a
+   fair FIFO waitlist. One address per person. No personal data is stored — only your
+   pls1 address, country code and a timestamp.</p>
+
+<div class="card">
+  <label for="address">Your pls1 address</label>
+  <input id="address" placeholder="pls1…" autocomplete="off" spellcheck="false">
+  <label for="country">Country (2-letter ISO code)</label>
+  <input id="country" list="countries" maxlength="2" placeholder="NL" autocomplete="off" style="text-transform:uppercase">
+  <datalist id="countries">
+    <option value="NL"><option value="BE"><option value="DE"><option value="FR"><option value="GB">
+    <option value="ES"><option value="IT"><option value="PT"><option value="PL"><option value="SE">
+    <option value="NO"><option value="DK"><option value="FI"><option value="IE"><option value="AT">
+    <option value="CH"><option value="CZ"><option value="GR"><option value="RO"><option value="HU">
+    <option value="US"><option value="CA"><option value="MX"><option value="BR"><option value="AR">
+    <option value="JP"><option value="KR"><option value="CN"><option value="IN"><option value="ID">
+    <option value="AU"><option value="NZ"><option value="ZA"><option value="NG"><option value="KE">
+    <option value="TR"><option value="AE"><option value="SG"><option value="TH"><option value="VN">
+  </datalist>
+  <button id="claim">Claim a faucet place</button>
+  <div id="result" class="result"></div>
+  <div id="meter" class="meter"></div>
+</div>
+
+<h2>Observe → validate → mint</h2>
+<p class="lede">A game, explorer or ChemField bounty escrows PLS on an observation
+   (geohash cell + object class). Your device recognizes the object; low-confidence
+   results require your explicit confirmation before anything is woven. Peers
+   re-run the inference on the digest-committed frame and check geohash proximity.
+   On verification the escrow settles — and PAR is minted, bounded by that escrow.
+   Full design: <code>docs/DUAL_COIN_IPO_PLAN.md</code> in
+   <a href="https://github.com/Knitweb/pulse">Knitweb/pulse</a>.</p>
+
+<footer>PAR · Pulse ledger · self-custody: your keys never leave your device ·
+  <a href="../pls/">PLS faucet →</a></footer>
+
+<script>
+(function () {
+  var api = '../api/faucet';
+  function meter(cc) {
+    if (!/^[A-Za-z]{2}$/.test(cc)) return;
+    fetch(api + '/status?faucet=par&country=' + cc.toUpperCase())
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok) document.getElementById('meter').textContent =
+          cc.toUpperCase() + ': ' + d.granted + '/' + d.cap + ' places granted' +
+          (d.waitlist ? ' · waitlist: ' + d.waitlist : '');
+      }).catch(function () {});
+  }
+  document.getElementById('country').addEventListener('change', function (e) { meter(e.target.value); });
+  document.getElementById('claim').addEventListener('click', function () {
+    var res = document.getElementById('result');
+    var address = document.getElementById('address').value.trim();
+    var country = document.getElementById('country').value.trim().toUpperCase();
+    res.className = 'result'; res.textContent = '';
+    fetch(api + '/claim', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ faucet: 'par', address: address, country: country })
+    }).then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { res.className = 'result err'; res.textContent = '✗ ' + d.error; return; }
+        if (d.status === 'granted') {
+          res.className = 'result ok';
+          res.textContent = '✓ Granted — place ' + d.position + ' of ' + d.cap + ' for ' + country + '.';
+        } else {
+          res.className = 'result wait';
+          res.textContent = '⏳ ' + country + ' is full (' + d.cap + '). You are #' + d.position + ' on the waitlist.';
+        }
+        meter(country);
+      })
+      .catch(function () { res.className = 'result err'; res.textContent = '✗ network error, try again'; });
+  });
+})();
+</script>
+</body>
+</html>

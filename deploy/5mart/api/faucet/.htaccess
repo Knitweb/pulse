@@ -1,0 +1,6 @@
+# The faucet pages post to the extensionless paths /api/faucet/{claim,status,health}
+# — route those to faucet.php, which also reads the action from the request path.
+RewriteEngine On
+RewriteRule ^_state(/|$) - [F,L]
+RewriteRule ^(claim|status|health)$ faucet.php [L,QSA]
+Options -Indexes
