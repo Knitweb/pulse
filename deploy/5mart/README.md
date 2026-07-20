@@ -15,6 +15,7 @@ connected whole with the shared hop-menu (no dead ends).
 | `/quantum/` | `Knitweb/k.nitweb.art` → `quantum/` (QuantumV) |
 | `/chemfield/` | `Knitweb/chemfield` → `web/` (interactive 3D steel-slag logo) |
 | `/dapp/` | `Knitweb/molgang` → `serverless/web/` (pure-P2P MOLGANG — the engine in every tab, no backend) |
+| `/start/` | this bundle's `start/` (guided first-five-minutes quest: node → claim → verify) |
 | `/api/relay/` | this bundle's `api/relay/` (Knitweb p2p mailbox relay + hole-punch rendezvous) |
 | `/api/feed/` | this bundle's `api/feed/` (FinField feed mirror — second HTTPS bootstrap origin) |
 | `/nav.js`   | the shared cross-host menu |

@@ -57,6 +57,10 @@ cp "$(dirname "$0")/robots.txt" "$STAGE/robots.txt" 2>/dev/null || true
 # alongside the site so RelayTransport's mailbox endpoints resolve; the same
 # bundle carries /api/faucet plus the PLS & PAR launch-faucet pages
 rsync -a "$(dirname "$0")/api/" "$STAGE/api/"
+# the guided first-five-minutes quest (features doc #3)
+mkdir -p "$STAGE/start"
+cp "$(dirname "$0")/start/index.html" "$STAGE/start/index.html"
+
 for coin in pls par; do
   rsync -a "$(dirname "$0")/$coin/" "$STAGE/$coin/"
   cp "$STAGE/nav.js" "$STAGE/$coin/nav.js"
@@ -88,5 +92,5 @@ rsync -a --delete --exclude '/api/relay/_data' --exclude '/api/feed/_cache' --ex
 
 [ -n "$RELOAD" ] && { say "reloading web server"; eval "$RELOAD"; }
 
-printf '\n\033[32m✓ 5mart.ml is in sync\033[0m — served: / · /wnw · /lens · /molgang · /quantum · /chemfield · /dapp · /pls · /par · /api/relay · /api/faucet\n'
+printf '\n\033[32m✓ 5mart.ml is in sync\033[0m — served: / · /wnw · /lens · /molgang · /quantum · /chemfield · /dapp · /start · /pls · /par · /api/relay · /api/faucet\n'
 say "clean up: rm -rf $WORK   (or keep it to speed up the next sync)"
