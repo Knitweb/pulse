@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knitweb relay — live network</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 1.5rem; background: #0d1117; color: #c9d1d9;
+         font: 14px/1.5 ui-monospace, "Cascadia Code", Menlo, monospace; }
+  h1 { font-size: 1.1rem; margin: 0 0 .25rem; color: #e6edf3; }
+  .sub { color: #8b949e; margin-bottom: 1.25rem; }
+  .cards { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1.25rem; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+          padding: .6rem 1rem; min-width: 7.5rem; }
+  .card b { display: block; font-size: 1.3rem; color: #e6edf3; }
+  .card span { color: #8b949e; font-size: .8rem; }
+  .ok  { color: #3fb950; } .bad { color: #f85149; } .dim { color: #8b949e; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 1.25rem; }
+  th, td { text-align: left; padding: .35rem .7rem; border-bottom: 1px solid #21262d; }
+  th { color: #8b949e; font-weight: normal; }
+  .kind-host { color: #d29922; } .kind-mailbox { color: #58a6ff; } .kind-punch { color: #bc8cff; }
+  .wrap { overflow-x: auto; }
+  footer { color: #484f58; font-size: .8rem; }
+  @media (prefers-color-scheme: light) {
+    :root { color-scheme: light; }
+    body { background: #ffffff; color: #1f2328; }
+    h1, .card b { color: #1f2328; }
+    .card { background: #f6f8fa; border-color: #d1d9e0; }
+    th, td { border-color: #d1d9e0; }
+  }
+</style>
+</head>
+<body>
+<h1>Knitweb relay — live network</h1>
+<div class="sub">store-and-forward mailboxes · hole-punch rendezvous · feed mirror — <span id="host">…</span></div>
+
+<div class="cards">
+  <div class="card"><b id="c-status">…</b><span>relay</span></div>
+  <div class="card"><b id="c-nodes">…</b><span>live nodes</span></div>
+  <div class="card"><b id="c-mailboxes">…</b><span>mailboxes</span></div>
+  <div class="card"><b id="c-frames">…</b><span>frames (live nodes)</span></div>
+  <div class="card"><b id="c-bytes">…</b><span>queued</span></div>
+  <div class="card"><b id="c-peer">…</b><span>peer relay</span></div>
+</div>
+
+<div class="wrap">
+<table>
+  <thead><tr><th>id</th><th>kind</th><th>seen</th><th>in</th><th>out</th><th>polls</th><th>head</th></tr></thead>
+  <tbody id="nodes"><tr><td colspan="7" class="dim">loading…</td></tr></tbody>
+</table>
+</div>
+
+<footer id="limits"></footer>
+
+<script>
+"use strict";
+function fmtBytes(n) {
+  if (n == null) return "–";
+  const u = ["B", "KiB", "MiB", "GiB"]; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(1) : n) + " " + u[i];
+}
+function fmtAge(s) {
+  if (s == null) return "–";
+  if (s < 60) return s + "s ago";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  return Math.floor(s / 3600) + "h ago";
+}
+function esc(x) {
+  return String(x).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+}
+async function refresh() {
+  let s;
+  try {
+    s = await (await fetch("status.php", {cache: "no-store"})).json();
+  } catch (e) {
+    document.getElementById("c-status").innerHTML = '<span class="bad">down</span>';
+    return;
+  }
+  document.getElementById("host").textContent = s.host || "?";
+  document.getElementById("c-status").innerHTML =
+    s.ok ? '<span class="ok">up</span>' : '<span class="bad">degraded</span>';
+  document.getElementById("c-nodes").textContent = s.node_count ?? "–";
+  document.getElementById("c-mailboxes").textContent = s.mailboxes ?? "–";
+  document.getElementById("c-frames").textContent = s.frames_total ?? "–";
+  document.getElementById("c-bytes").textContent = fmtBytes(s.queue_bytes);
+  const p = s.peer || {};
+  document.getElementById("c-peer").innerHTML = p.reachable
+    ? '<span class="ok">' + esc(p.host || "peer") + "</span>"
+    : '<span class="dim">unreachable</span>';
+  const rows = (s.nodes || []).map(n =>
+    "<tr><td>" + esc(n.id) + "</td>" +
+    '<td class="kind-' + esc(n.kind || "node") + '">' + esc(n.kind || "node") + "</td>" +
+    "<td>" + fmtAge(n.age) + "</td>" +
+    "<td>" + (n.frames_in ?? 0) + "</td>" +
+    "<td>" + (n.frames_out ?? 0) + "</td>" +
+    "<td>" + (n.polls ?? 0) + "</td>" +
+    '<td class="dim">' + esc(n.head ? String(n.head).slice(0, 12) : "–") + "</td></tr>"
+  );
+  document.getElementById("nodes").innerHTML =
+    rows.join("") || '<tr><td colspan="7" class="dim">no live nodes in the last 15 min</td></tr>';
+  const L = s.limits || {};
+  document.getElementById("limits").textContent =
+    "limits: frame ≤ " + fmtBytes(L.max_frame_bytes) + " · queue ≤ " + (L.max_queue ?? "–") +
+    " frames / " + fmtBytes(L.mb_max_bytes) + " per mailbox · relay ≤ " + fmtBytes(L.total_max_bytes) +
+    " · frame TTL " + (L.frame_ttl_s ?? "–") + "s · long-poll ≤ " + (L.max_wait_s ?? "–") +
+    "s · send ≤ " + (L.send_per_min ?? "–") + "/min/IP · refreshes every 10s";
+}
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>
