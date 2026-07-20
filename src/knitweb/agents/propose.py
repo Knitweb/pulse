@@ -49,7 +49,14 @@ from ..pouw.job import DistillManifest, bundle_cid
 from ..synaptic.bytecode import compile_bundle
 from .credential import AgentCredential
 
-__all__ = ["ReliabilityVerdict", "ProposeKnitError", "ProposedKnit", "propose_knit"]
+__all__ = [
+    "ReliabilityVerdict",
+    "CandidateSetLike",
+    "SelectionLike",
+    "ProposeKnitError",
+    "ProposedKnit",
+    "propose_knit",
+]
 
 
 class ReliabilityVerdict(Protocol):
@@ -57,6 +64,20 @@ class ReliabilityVerdict(Protocol):
 
     abstained: bool
     confidence: int
+
+
+class CandidateSetLike(Protocol):
+    """Structural stand-in for ``knitweb.interpret.retrieve.CandidateSet``."""
+
+    web_state_cid: str
+    query: object
+    subscription: object
+
+
+class SelectionLike(Protocol):
+    """Structural stand-in for ``knitweb.interpret.distill.Selection``."""
+
+    relations: object
 
 
 class ProposeKnitError(ValueError):
@@ -77,8 +98,8 @@ class ProposedKnit:
 
 
 def propose_knit(
-    candidate_set: object,
-    selection: object,
+    candidate_set: CandidateSetLike,
+    selection: SelectionLike,
     credential: AgentCredential,
     agent_priv: str,
     reliability: ReliabilityVerdict,
@@ -86,9 +107,19 @@ def propose_knit(
     """Build and sign a distill manifest on behalf of a credentialed agent.
 
     Raises :class:`ProposeKnitError` if the credential does not verify, the
-    signing key does not match the credential, or ``reliability.abstained`` is
-    true — the calibrated-confidence gate lens#14 requires so an unconfident
-    agent proposal can never reach the canonical Web.
+    signing key does not match the credential, ``reliability.abstained`` is
+    true, or ``reliability.confidence`` is not a positive int — the
+    calibrated-confidence gate lens#14 requires so an unconfident agent
+    proposal can never reach the canonical Web.
+
+    The actual confidence *threshold* is the caller's responsibility (e.g.
+    ``knitweb_lens.reliability.evaluate_session``'s ``min_confidence``, which
+    is what sets ``abstained`` in the first place) — this function does not
+    re-derive or second-guess that threshold. What it does enforce is
+    consistency: a verdict claiming ``abstained=False`` must carry a
+    ``confidence`` that actually supports that claim (a positive int), so a
+    malformed or degenerate verdict object can't slip a proposal through on a
+    default/zero confidence value.
     """
     if not credential.verify():
         raise ProposeKnitError("agent credential does not verify (unsigned or tampered)")
@@ -97,6 +128,12 @@ def propose_knit(
     if bool(getattr(reliability, "abstained", True)):
         raise ProposeKnitError(
             "reliability verdict abstained — refusing to propose (calibrated-confidence gate)"
+        )
+    confidence = getattr(reliability, "confidence", None)
+    if not isinstance(confidence, int) or isinstance(confidence, bool) or confidence <= 0:
+        raise ProposeKnitError(
+            "reliability.confidence must be a positive int for a non-abstained verdict "
+            f"(calibrated-confidence gate) — got {confidence!r}"
         )
 
     web_state_cid = getattr(candidate_set, "web_state_cid", None)

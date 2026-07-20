@@ -140,7 +140,7 @@ def assert_credential_shape(record: dict) -> None:
     if missing:
         raise AgentCredentialError(f"agent credential missing required fields: {sorted(missing)}")
     if record["kind"] != KIND:
-        raise AgentCredentialError(f"kind must be {KIND!r}")
+        raise AgentCredentialError(f"kind must be {KIND!r}, got {record['kind']!r}")
     role = record["role"]
     if not isinstance(role, int) or isinstance(role, bool) or role not in KNOWN_ROLES:
         raise AgentCredentialError(f"role={role!r} not in {sorted(KNOWN_ROLES)}")
@@ -150,10 +150,12 @@ def assert_credential_shape(record: dict) -> None:
     for field in ("agent_pub", "issuer_pub"):
         value = record[field]
         if not isinstance(value, str) or not crypto.is_valid_hex(value, 33):
-            raise AgentCredentialError(f"{field!r} must be a 33-byte compressed pubkey hex")
+            raise AgentCredentialError(
+                f"{field!r} must be a 33-byte compressed pubkey hex, got {value!r}"
+            )
     issued_at = record["issued_at"]
     if not isinstance(issued_at, int) or isinstance(issued_at, bool) or issued_at < 0:
-        raise AgentCredentialError("issued_at must be a non-negative int")
+        raise AgentCredentialError(f"issued_at must be a non-negative int, got {issued_at!r}")
 
 
 def build(

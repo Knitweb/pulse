@@ -88,6 +88,27 @@ def test_abstained_reliability_verdict_is_refused():
 
 
 @pytest.mark.property
+@pytest.mark.parametrize("bad_confidence", [0, -1, -500])
+def test_non_positive_confidence_is_refused_even_when_not_abstained(bad_confidence):
+    agent_priv, cred = _credentialed_agent()
+    with pytest.raises(ProposeKnitError):
+        propose_knit(
+            _FakeCandidateSet(), _selection(), cred, agent_priv,
+            _Reliability(False, confidence=bad_confidence),
+        )
+
+
+@pytest.mark.property
+def test_non_int_confidence_is_refused():
+    agent_priv, cred = _credentialed_agent()
+    with pytest.raises(ProposeKnitError):
+        propose_knit(
+            _FakeCandidateSet(), _selection(), cred, agent_priv,
+            _Reliability(False, confidence="high"),
+        )
+
+
+@pytest.mark.property
 def test_empty_selection_is_refused():
     agent_priv, cred = _credentialed_agent()
     empty = _FakeSelection(())
