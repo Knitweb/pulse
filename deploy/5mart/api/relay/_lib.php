@@ -34,6 +34,7 @@ defined('RELAY_FRAME_TTL')      || define('RELAY_FRAME_TTL', 3600);           //
 defined('RELAY_MB_MAX_BYTES')   || define('RELAY_MB_MAX_BYTES', 33554432);    // 32 MiB per mailbox queue file
 defined('RELAY_TOTAL_MAX_BYTES')|| define('RELAY_TOTAL_MAX_BYTES', 536870912);// 512 MiB across all queues
 defined('RELAY_MAX_WAIT')       || define('RELAY_MAX_WAIT', 8);               // fetch long-poll cap (s) — keep low, each waiter pins a PHP worker
+defined('RELAY_SEND_PER_MIN')   || define('RELAY_SEND_PER_MIN', 120);         // sends allowed per source IP per minute (0 disables)
 
 // base64 inflates 3→4; allow the encoded form of a max-size frame plus padding
 define('RELAY_MAX_FRAME_B64', intdiv(RELAY_MAX_FRAME_B + 2, 3) * 4 + 8);
@@ -96,6 +97,32 @@ function mb_partition_lines($contents) {
     $live[] = $ln;
   }
   return $live;
+}
+/* Fixed-window per-IP send limiter (coarse on purpose: shared hosting has no
+ * shared memory, so the window is one flocked counter file per source IP).
+ * Blunts the cheapest floods; the byte budgets remain the hard backstop.
+ * Returns true when the caller is within the window's allowance. */
+function rate_allow($ip) {
+  if (RELAY_SEND_PER_MIN <= 0 || $ip === '') return true;
+  $dir = RELAY_DATA . '/rl';
+  if (!is_dir($dir)) @mkdir($dir, 0770, true);
+  $window = intdiv(time(), 60);
+  $path = $dir . '/' . sha1($ip) . '.cnt';
+  $fp = fopen($path, 'c+');
+  if (!$fp) return true;   // fail open — the limiter must never take the relay down
+  flock($fp, LOCK_EX);
+  $d = json_decode(stream_get_contents($fp), true) ?: [];
+  if (($d['w'] ?? 0) !== $window) $d = ['w' => $window, 'n' => 0];
+  $d['n']++;
+  $ok = $d['n'] <= RELAY_SEND_PER_MIN;
+  rewind($fp); ftruncate($fp, 0); fwrite($fp, json_encode($d));
+  flock($fp, LOCK_UN); fclose($fp);
+  // probabilistic sweep of counter files from long-gone windows
+  if (mt_rand(1, 100) === 1) {
+    $cutoff = time() - 300;
+    foreach (glob($dir . '/*.cnt') ?: [] as $f) if (@filemtime($f) < $cutoff) @unlink($f);
+  }
+  return $ok;
 }
 function queues_total_bytes() {
   $total = 0;
@@ -173,6 +200,7 @@ function status_local() {
       'max_frame_bytes' => RELAY_MAX_FRAME_B, 'max_queue' => RELAY_MAX_QUEUE,
       'frame_ttl_s' => RELAY_FRAME_TTL, 'mb_max_bytes' => RELAY_MB_MAX_BYTES,
       'total_max_bytes' => RELAY_TOTAL_MAX_BYTES, 'max_wait_s' => RELAY_MAX_WAIT,
+      'send_per_min' => RELAY_SEND_PER_MIN,
     ],
     'peer_url' => defined('RELAY_PEER_STATUS') ? RELAY_PEER_STATUS : null,
   ];
