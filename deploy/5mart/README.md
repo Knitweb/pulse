@@ -79,6 +79,12 @@ shards) and stale-while-error, so nodes have a bootstrap origin that
 survives a GitHub outage. Trust-free: heads are signed and records
 content-addressed — a mirror cannot forge the feed.
 
+The mirror also serves the signed **ops feed** (`/api/feed/ops/…` →
+`FinField/feed` `ops/`): integer-only `relay-status` snapshots published
+every 30 min by `tools/publish_ops_feed.py` under its own publisher key,
+so relay health is itself P2P-distributed and verifiable with
+`knitweb.fabric.feed`.
+
 Two ways to serve it, depending on the host:
 
 - **Apache + PHP (TransIP shared hosting):** the bundle works as-is. Queue
