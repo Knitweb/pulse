@@ -1,0 +1,10 @@
+# Route the extensionless relay endpoints (send/fetch/health) to their PHP
+# handlers. RelayTransport posts to https://5mart.ml/api/relay/{send,fetch}
+# with no file extension (see src/knitweb/p2p/relay.py).
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME}.php -f
+RewriteRule ^([a-z]+)$ $1.php [L]
+
+# Everything here is a POST API; deny directory listing as defense in depth
+# (queue storage itself lives outside this docroot, see _common.php).
+Options -Indexes
