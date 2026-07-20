@@ -1,7 +1,10 @@
-# RelayTransport (src/knitweb/p2p/relay.py) posts to the extensionless paths
-# /api/relay/{send,fetch} — route those (plus /health) to relay.php, which also
-# reads the action from the request path (issue #337).
+# Route the extensionless relay endpoints RelayTransport posts to
+# (/api/relay/{send,fetch,health}, pulse #337) to the live FinField
+# store-and-forward implementation, and shield internals from direct access.
 RewriteEngine On
-RewriteRule ^_mailboxes(/|$) - [F,L]
-RewriteRule ^(send|fetch|health)$ relay.php [L,QSA]
+RewriteRule ^_(data|mailboxes)(/|$) - [F,L]
+RewriteRule ^_(config|lib)\.php$ - [F,L]
+RewriteRule ^send$ send.php [L,QSA]
+RewriteRule ^fetch$ fetch.php [L,QSA]
+RewriteRule ^health$ heartbeat.php [L,QSA]
 Options -Indexes

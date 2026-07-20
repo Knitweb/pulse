@@ -41,9 +41,17 @@ load-bearing:
    personal data or the offeror receives fees/commissions — the zero-PII
    design was chosen to keep this route clean.
 3. **Small-circle exemption (Art. 4(2)(a))** — even if the faucet were an
-   offer, grants are capped at **150 persons per country** in code, with
-   everyone beyond 150 on a waitlist that receives nothing. Counters are
-   per (faucet, country) ledger files, auditable.
+   offer, grants are capped per country in code, with everyone beyond the
+   cap on a waitlist that receives nothing. Counters are per
+   (faucet, country) ledger files, auditable.
+   **⚠ Precision point:** the exemption covers offers "to *fewer than* 150
+   persons per Member State" — i.e. **at most 149**. The faucet grants
+   exactly **150** places per country. For the 150th grant in an EU/EEA
+   country this posture therefore does not apply on its own; postures 1–2
+   still cover it. **[DECISION NEEDED]**: either (a) lower the cap to 149
+   for EU/EEA countries (one-constant change in `faucet.php`) so all three
+   postures hold for every grant, or (b) keep the user-specified 150 and
+   rely on the reward-exclusion + free-offer postures.
 
 Residual duties even while exempt: marketing communications must stay fair
 and non-misleading, and none of the above helps once **admission to

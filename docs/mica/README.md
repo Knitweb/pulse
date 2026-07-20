@@ -20,9 +20,10 @@ before any notification, publication, or offer. `[DATA NEEDED]` and
 Key design↔regulation couplings already in the shipped code:
 
 - The launch faucets cap grants at **150 persons per country** with a FIFO
-  waitlist (`deploy/5mart/api/faucet/`), mirroring the Art. 4(2)(a)
+  waitlist (`deploy/5mart/api/faucet/`), designed around the Art. 4(2)(a)
   fewer-than-150-persons-per-Member-State offer exemption — the cap is
-  *enforced technically*, not just promised.
+  *enforced technically*, not just promised. (Precision: "fewer than 150"
+  means max 149 — see the memo for the open 149-vs-150 decision.)
 - The faucet stores **zero personal data** (address + country code +
   timestamp), which is what keeps a free offer actually "free" in the MiCA
   sense (an offer is not for free where personal data is exchanged).
