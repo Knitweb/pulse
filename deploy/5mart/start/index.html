@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start — your first five minutes on Knitweb</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 1.5rem; background: #0d1117; color: #c9d1d9;
+         font: 15px/1.6 ui-monospace, "Cascadia Code", Menlo, monospace; max-width: 46rem; margin-inline: auto; }
+  h1 { font-size: 1.25rem; color: #e6edf3; margin: 0 0 .25rem; }
+  .sub { color: #8b949e; margin-bottom: 1.5rem; }
+  a { color: #58a6ff; }
+  .step { background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+          padding: 1rem 1.2rem; margin-bottom: 1rem; }
+  .step.done { border-color: #238636; }
+  .step h2 { font-size: 1rem; margin: 0 0 .5rem; color: #e6edf3; }
+  .step.done h2::before { content: "✓ "; color: #3fb950; }
+  .step h2 .n { color: #8b949e; font-weight: normal; }
+  input, select, button { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d;
+          border-radius: 6px; padding: .45rem .8rem; font: inherit; }
+  button { cursor: pointer; background: #161b22; } button:hover { border-color: #58a6ff; }
+  button.primary { background: #1f6feb22; border-color: #1f6feb; }
+  .row { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+  .msg { margin-top: .6rem; } .ok { color: #3fb950; } .bad { color: #f85149; } .dim { color: #8b949e; }
+  code { background: #0d1117; border: 1px solid #21262d; border-radius: 4px; padding: 0 .3rem; word-break: break-all; }
+  .grand { text-align: center; padding: 1.2rem; border: 1px solid #238636; border-radius: 10px;
+           background: #12261e; color: #3fb950; font-size: 1.05rem; display: none; }
+  @media (prefers-color-scheme: light) {
+    :root { color-scheme: light; }
+    body { background: #fff; color: #1f2328; } h1, .step h2 { color: #1f2328; }
+    .step, button { background: #f6f8fa; border-color: #d1d9e0; }
+    input, select { background: #fff; border-color: #d1d9e0; }
+    code { background: #f6f8fa; border-color: #d1d9e0; }
+    .grand { background: #e6f4ea; }
+  }
+</style>
+</head>
+<body>
+<h1>Your first five minutes</h1>
+<div class="sub">become a node · claim your place · watch the network react — no install, no account, no PII</div>
+
+<div class="step" id="s1">
+  <h2><span class="n">1 ·</span> Become a node</h2>
+  <p class="dim" style="margin:.2rem 0 .4rem">Open the engine — the real Knitweb peer boots in that tab
+  (WASM, your keys never leave the browser). Copy your <code>pls1…</code> address and paste it here.</p>
+  <div class="row">
+    <a href="/dapp/" target="_blank"><button class="primary">Open the engine ↗</button></a>
+    <input id="addr" placeholder="pls1…" style="flex:1;min-width:16rem">
+    <button id="saveaddr">Save</button>
+  </div>
+  <div class="msg" id="m1"></div>
+</div>
+
+<div class="step" id="s2">
+  <h2><span class="n">2 ·</span> Claim your place</h2>
+  <p class="dim" style="margin:.2rem 0 .4rem">150 places per country, then a fair FIFO waitlist.
+  A claim reserves your place; delivery settles on-ledger against these records — no premine.</p>
+  <div class="row">
+    <select id="country">
+      <option value="">country…</option>
+      <option>NL</option><option>BE</option><option>DE</option><option>FR</option><option>ES</option>
+      <option>IT</option><option>PT</option><option>PL</option><option>SE</option><option>DK</option>
+      <option>FI</option><option>NO</option><option>AT</option><option>IE</option><option>CZ</option>
+      <option value="__other">other…</option>
+    </select>
+    <input id="countryOther" placeholder="ISO code, e.g. JP" maxlength="2" style="display:none;width:7rem">
+    <button id="claim" class="primary">Claim PLS</button>
+  </div>
+  <div class="msg" id="m2"></div>
+</div>
+
+<div class="step" id="s3">
+  <h2><span class="n">3 ·</span> Watch the network react</h2>
+  <p class="dim" style="margin:.2rem 0 .4rem">Everything you just did is public, verifiable machinery:</p>
+  <div class="row">
+    <a href="../api/relay/monitor.html" target="_blank"><button>Live monitor ↗</button></a>
+    <a href="../api/feed/explorer.html" target="_blank"><button>Verify the feed in your tab ↗</button></a>
+  </div>
+  <div class="msg" id="m3"></div>
+</div>
+
+<div class="grand" id="grand"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = x => String(x).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const state = JSON.parse(localStorage.getItem("kw-quest") || "{}");
+const save = () => localStorage.setItem("kw-quest", JSON.stringify(state));
+
+function render() {
+  if (state.addr) {
+    $("addr").value = state.addr;
+    $("m1").innerHTML = '<span class="ok">node address saved:</span> <code>' + esc(state.addr) + "</code>";
+    $("s1").classList.add("done");
+  }
+  if (state.claim) {
+    const c = state.claim;
+    $("m2").innerHTML = c.status === "granted"
+      ? '<span class="ok">granted — you hold place ' + c.position + " of " + c.cap + " for " + esc(c.country) + "</span>"
+      : '<span class="ok">waitlisted at position ' + c.position + " for " + esc(c.country) + "</span> <span class='dim'>(fair FIFO)</span>";
+    $("s2").classList.add("done");
+  }
+  if (state.addr && state.claim) {
+    $("grand").style.display = "block";
+    $("grand").textContent = "You are a node with a claimed place. Welcome to the field.";
+    $("s3").classList.add("done");
+    countryPulse();
+  }
+}
+
+$("saveaddr").onclick = () => {
+  const v = $("addr").value.trim();
+  if (!/^pls1[a-z2-7]{20,64}$/.test(v)) {   // same grammar the faucet enforces
+    $("m1").innerHTML = '<span class="bad">that does not look like a pls1… address</span>'; return;
+  }
+  state.addr = v; save(); render();
+};
+
+$("country").onchange = () =>
+  $("countryOther").style.display = $("country").value === "__other" ? "" : "none";
+
+$("claim").onclick = async () => {
+  if (!state.addr) { $("m2").innerHTML = '<span class="bad">save your address in step 1 first</span>'; return; }
+  let cc = $("country").value === "__other" ? $("countryOther").value.trim().toUpperCase() : $("country").value;
+  if (!/^[A-Z]{2}$/.test(cc)) { $("m2").innerHTML = '<span class="bad">pick a country</span>'; return; }
+  $("m2").innerHTML = '<span class="dim">claiming…</span>';
+  try {
+    const r = await (await fetch("../api/faucet/claim", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({faucet: "pls", address: state.addr, country: cc}),
+    })).json();
+    if (!r.ok) { $("m2").innerHTML = '<span class="bad">' + esc(r.error || "claim failed") + "</span>"; return; }
+    state.claim = {status: r.status, position: r.position, cap: r.cap || 150, country: cc};
+    save(); render();
+  } catch (e) { $("m2").innerHTML = '<span class="bad">faucet unreachable — try again</span>'; }
+};
+
+async function countryPulse() {
+  if (!state.claim) return;
+  try {
+    const r = await (await fetch("../api/faucet/status?faucet=pls&country=" + state.claim.country)).json();
+    if (r.ok) $("m3").innerHTML = '<span class="dim">your country right now:</span> ' +
+      r.granted + "/" + r.cap + " places taken, " + r.waitlist + " waiting";
+  } catch (e) { /* leave as is */ }
+}
+
+render();
+</script>
+</body>
+</html>
