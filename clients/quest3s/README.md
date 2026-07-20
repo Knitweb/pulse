@@ -52,7 +52,7 @@ webcam, no Unity needed.
      - **Web Cam Manager** → the `WebCamTextureManager`;
      - **Label Prefab** → a small world-space prefab with a `TextMesh` in its
        children (a 3D Text or a TMP label facing +Z);
-     - **Server Url** → `http://<node-ip>:8008` (same Wi-Fi as the headset).
+     - **Server URL** → `http://<node-ip>:8008` (same Wi-Fi as the headset).
 6. Start the node on that machine:
    ```bash
    pip install 'knitweb[vision]'

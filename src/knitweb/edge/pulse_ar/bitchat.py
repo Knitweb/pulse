@@ -181,6 +181,12 @@ class MeshNode:
 
     def deliver(self, frame: BitchatFrame, sender: "MeshNode | None" = None) -> None:
         """Handle a fragment arriving over a BLE link: reassemble, deliver, relay."""
+        if frame.ttl <= 0:
+            return                       # exhausted (or malformed) — never process or relay
+        if frame.ttl > MAX_TTL:
+            # External BLE drivers can hand us frames with an arbitrary ttl; clamp
+            # so a buggy or malicious peer cannot make a frame circulate forever.
+            frame = replace(frame, ttl=MAX_TTL)
         key = (frame.msg_id, frame.index)
         if key in self._relayed:
             return                       # already saw this exact fragment — drop (no storm)

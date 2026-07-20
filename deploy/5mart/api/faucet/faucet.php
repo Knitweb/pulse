@@ -120,11 +120,19 @@ $ip_key = hash('sha256', file_get_contents($salt_file) . '|' . ($_SERVER['REMOTE
 $rl_dir = $DATA . '/.rl';
 if (!is_dir($rl_dir)) { mkdir($rl_dir, 0770, true); }
 $rl_file = $rl_dir . '/' . substr($ip_key, 0, 32);
-$stamps = is_file($rl_file) ? array_filter(array_map('intval', file($rl_file, FILE_IGNORE_NEW_LINES))) : array();
-$stamps = array_values(array_filter($stamps, function ($t) { return $t > time() - 86400; }));
-if (count($stamps) >= MAX_CLAIMS_PER_IP_DAY) { flock($fh, LOCK_UN); fclose($fh); fail(429, 'rate limit: try again tomorrow'); }
+$rl = fopen($rl_file, 'c+');
+if ($rl === false || !flock($rl, LOCK_EX)) { if ($rl) { fclose($rl); } flock($fh, LOCK_UN); fclose($fh); fail(503, 'busy, retry'); }
+$stamps = array();
+while (($line = fgets($rl)) !== false) { $t = (int)trim($line); if ($t > time() - 86400) { $stamps[] = $t; } }
+if (count($stamps) >= MAX_CLAIMS_PER_IP_DAY) {
+    flock($rl, LOCK_UN); fclose($rl);
+    flock($fh, LOCK_UN); fclose($fh);
+    fail(429, 'rate limit: try again tomorrow');
+}
 $stamps[] = time();
-file_put_contents($rl_file, implode("\n", $stamps) . "\n");
+rewind($rl); ftruncate($rl, 0);
+fwrite($rl, implode("\n", $stamps) . "\n");
+fflush($rl); flock($rl, LOCK_UN); fclose($rl);
 
 // ---- append the reservation ---------------------------------------------
 $position = $total + 1;                       // 1-based; ≤150 granted, >150 waitlist
