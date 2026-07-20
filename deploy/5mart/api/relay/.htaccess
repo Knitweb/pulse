@@ -7,4 +7,5 @@ RewriteRule ^_(config|lib)\.php$ - [F,L]
 RewriteRule ^send$ send.php [L,QSA]
 RewriteRule ^fetch$ fetch.php [L,QSA]
 RewriteRule ^health$ heartbeat.php [L,QSA]
+RewriteRule ^punch$ punch.php [L,QSA]
 Options -Indexes

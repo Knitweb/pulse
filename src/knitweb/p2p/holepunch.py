@@ -27,12 +27,14 @@ from __future__ import annotations
 
 from typing import Optional, Protocol, Tuple, runtime_checkable
 
+from .relay import HttpPoster, RelayError
 from .transport import FrameFaultHandler, FrameHandler, PeerAddress, TcpTransport
 
 __all__ = [
     "HolePunchError",
     "Rendezvous",
     "InMemoryRendezvous",
+    "HttpRendezvous",
     "HolePunchTransport",
 ]
 
@@ -100,6 +102,78 @@ class InMemoryRendezvous:
         self.registry.pop(punch_id, None)
 
 
+class HttpRendezvous:
+    """The production :class:`Rendezvous`: a relay host's ``api/relay/punch``.
+
+    Speaks the four-action JSON API served by ``deploy/5mart/api/relay/punch.php``
+    over the same injectable :class:`~knitweb.p2p.relay.HttpPoster` seam the relay
+    transport uses, so tests drive it without sockets.
+
+    BitTorrent-tracker model: the public HOST is always what the rendezvous
+    observes on the wire (unspoofable), while the PORT is the listener's own
+    bound port — correct for the port-preserving/EIM NATs home connections
+    typically sit behind. A symmetric NAT breaks that assumption; the resulting
+    endpoint is simply undialable, which :meth:`HolePunchTransport.dial` treats
+    as a failed punch and falls back to the relay mailbox. Registrations expire
+    server-side (short TTL), so a crashed listener stops being advertised
+    without an unregister.
+
+    Failure posture: ``resolve`` maps any rendezvous outage to ``None`` (no
+    direct path ⇒ relay fallback keeps the peer reachable) and ``unregister``
+    is best-effort, but ``register`` raises — a listener that cannot publish
+    its endpoint should fail loudly, not silently become relay-only.
+    """
+
+    def __init__(self, base_url: str, *, poster: "HttpPoster | None" = None) -> None:
+        self.base_url = base_url.rstrip("/")
+        self._poster = poster or HttpPoster()
+
+    @property
+    def _punch_url(self) -> str:
+        return f"{self.base_url}/api/relay/punch"
+
+    async def _post(self, action: str, extra: "dict | None" = None) -> dict:
+        payload: dict = {"action": action}
+        if extra:
+            payload.update(extra)
+        return await self._poster.post(self._punch_url, payload)
+
+    async def public_address(self, listener: "HolePunchTransport") -> Tuple[str, int]:
+        reply = await self._post("whoami")
+        host = reply.get("host")
+        if not isinstance(host, str) or not host:
+            raise HolePunchError("rendezvous whoami returned no host")
+        return host, listener._tcp.local_address().port
+
+    async def register(self, punch_id: str, host: str, port: int) -> None:
+        # ``host`` is advisory only — the rendezvous stores what it observed.
+        reply = await self._post("register", {"punch_id": punch_id, "port": port})
+        if reply.get("ok") is not True:
+            raise HolePunchError(f"rendezvous register refused: {reply.get('error')!r}")
+
+    async def resolve(self, punch_id: str) -> "Optional[Tuple[str, int]]":
+        try:
+            reply = await self._post("resolve", {"punch_id": punch_id})
+        except RelayError:
+            return None
+        endpoint = reply.get("endpoint")
+        if (
+            isinstance(endpoint, dict)
+            and isinstance(endpoint.get("host"), str)
+            and endpoint["host"]
+            and isinstance(endpoint.get("port"), int)
+            and 0 < endpoint["port"] < 65536
+        ):
+            return endpoint["host"], endpoint["port"]
+        return None
+
+    async def unregister(self, punch_id: str) -> None:
+        try:
+            await self._post("unregister", {"punch_id": punch_id})
+        except RelayError:
+            pass  # best-effort per the protocol; the server TTL is the backstop
+
+
 class HolePunchTransport:
     """A NAT-traversing carrier: coordinate via rendezvous, then carry over TCP.
 
@@ -146,7 +220,14 @@ class HolePunchTransport:
         if endpoint is not None:
             host, port = endpoint
             direct = PeerAddress(host=host, port=port, transport="tcp")
-            return await self._tcp.dial(direct, request)
+            try:
+                return await self._tcp.dial(direct, request)
+            except OSError:
+                # A resolved-but-undialable endpoint (listener crashed inside
+                # the registration TTL, or a symmetric NAT registered a mapping
+                # that only worked toward the rendezvous). ICE-style: a dead
+                # candidate is not a dial failure while a fallback remains.
+                pass
         # symmetric NAT / no direct path → transparent relay fallback
         fallback = self._relay_peer(peer)
         if fallback is not None and self.relay is not None:

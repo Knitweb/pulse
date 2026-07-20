@@ -54,6 +54,12 @@ pins a PHP worker on shared hosting), and frames are strictly
 base64-validated up to the wire limit (8 MiB). All limits are overridable
 via `define()` in `_config.php`.
 
+The host is also a **hole-punch rendezvous** (`/api/relay/punch`,
+`punch.php`): NAT'd listeners publish their punched endpoint
+(server-observed IP + declared port, BitTorrent-tracker model; owner-pinned
+per IP, 300 s TTL) and dialers resolve it to go **direct over TCP**, with
+the mailbox as fallback. Client binding: `knitweb.p2p.holepunch.HttpRendezvous`.
+
 Two ways to serve it, depending on the host:
 
 - **Apache + PHP (TransIP shared hosting):** the bundle works as-is. Queue
