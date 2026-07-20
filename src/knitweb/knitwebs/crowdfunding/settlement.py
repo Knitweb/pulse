@@ -23,9 +23,12 @@ from ...core import crypto
 from ...ledger import knitweb as _kw
 from ...ledger.knit import Knit
 from ...ledger.node import AccountNode
-from .campaign import audit_settlement, settlement_entries
+from .campaign import audit_forfeiture, audit_settlement, forfeiture_entries, settlement_entries
 
-__all__ = ["EscrowError", "execute_settlement", "validate_payout", "SettlementSession"]
+__all__ = [
+    "EscrowError", "execute_settlement", "execute_forfeiture", "validate_payout",
+    "SettlementSession", "RefundClaimDesk",
+]
 
 
 class EscrowError(Exception):
@@ -130,6 +133,63 @@ def execute_settlement(
     return knits
 
 
+def execute_forfeiture(
+    forfeiture_att,
+    outcome_record: dict,
+    campaign_record: dict,
+    pledges: List[dict],
+    claimed_cids: List[str],
+    escrow: AccountNode,
+    forfeit_account: AccountNode,
+    *,
+    timestamp: int,
+    symbol: str = "PLS",
+    applied: set | None = None,
+) -> List[Knit]:
+    """Sweep refunds still unclaimed at the forfeiture time to the campaign's forfeiture account.
+
+    The mirror of :func:`execute_settlement` for the residual: it audits the signed forfeiture
+    instruction (validly authority-signed AND recomputes from the pledges + ``claimed_cids`` +
+    ``as_of``) before moving any value, then transfers each unclaimed refund escrow→forfeiture
+    account. ``forfeit_account`` must be the policy's ``forfeit_to`` address. ``applied`` gives the
+    same one-shot idempotency as settlement execution. Because the entries only cover refunds NOT
+    in ``claimed_cids``, a pledger who already pulled their refund is never swept.
+
+    Raises :class:`ValueError` if the forfeiture does not audit, or :class:`EscrowError` if it was
+    already applied, the forfeiture account is missing/mismatched or a self-transfer/other network,
+    or the escrow is underfunded for the residual.
+    """
+    if not audit_forfeiture(forfeiture_att, outcome_record, campaign_record, pledges, claimed_cids):
+        raise ValueError("forfeiture does not audit; refusing to move value")
+
+    forfeiture_cid = forfeiture_att.cid
+    if applied is not None and forfeiture_cid in applied:
+        raise EscrowError(f"forfeiture {forfeiture_cid} already executed")
+
+    now = forfeiture_att.record["as_of"]
+    entries = forfeiture_entries(outcome_record, campaign_record, pledges, claimed_cids, now)
+    total = sum(amount for _cid, _payee, amount in entries)
+
+    # Validate the single forfeiture payee + funding up front (all-or-nothing), same invariants as
+    # execute_settlement: a matching account, sender != receiver, same network, enough funds.
+    forfeit_to = forfeiture_att.record["forfeit_to"]
+    if forfeit_account.address != forfeit_to:
+        raise EscrowError(f"forfeit account address mismatch (expected {forfeit_to})")
+    if forfeit_to == escrow.address:
+        raise EscrowError("the forfeiture account may not be the escrow itself (self-transfer)")
+    if forfeit_account.network != escrow.network:
+        raise EscrowError("forfeiture account is on a different network than the escrow")
+    if escrow.balance(symbol) < total:
+        raise EscrowError(f"escrow has {escrow.balance(symbol)} {symbol}, forfeiture needs {total}")
+
+    knits: List[Knit] = []
+    for index, (_cid, _payee, amount) in enumerate(entries):
+        knits.append(escrow.transfer_to(forfeit_account, symbol, amount, timestamp + index))
+    if applied is not None:
+        applied.add(forfeiture_cid)
+    return knits
+
+
 class SettlementSession:
     """Resumable, payee-validated escrow-push settlement — distributed Phase 1 (in-process).
 
@@ -212,3 +272,89 @@ class SettlementSession:
             self.step(start_timestamp + offset)
             offset += 1
         return list(self._knits)
+
+
+class RefundClaimDesk:
+    """Model-B **payee-pull** refund claims — offline-tolerant settlement (#202).
+
+    Where :class:`SettlementSession` is escrow-*push* (the escrow drives every entry), a refund
+    should not need every pledger online at once: a recipient may be offline for a met/missed goal
+    and claim its own refund whenever it next comes online. This desk is the neutral escrow-side
+    service for that pull model. It audits the settlement once, then services independent per-payee
+    claims:
+
+    - ``owed(addr)`` lists the addr's still-unclaimed audited entries.
+    - ``claim(payee, ts)`` pays **only** the entries owed to ``payee.address`` — the escrow proposes,
+      the payee independently authorises (:func:`validate_payout`) and co-signs, the escrow applies,
+      and the entry is marked claimed. A payee can only complete a claim for its own entries (the
+      co-sign needs the payee's key and the proposal must be addressed to it), so a forged claim for
+      another payee's entry pays nothing.
+    - **Claim-once**: each ``(settlement_cid, pledge_cid)`` is recorded in a caller-persistable
+      ``claimed`` set, so a duplicate claim never pays twice, even against an over-funded escrow.
+
+    Unclaimed entries remain claimable indefinitely (MVP). The applied Knits reconcile against the
+    settlement's ``settlement_root``. Cross-node transport (a claim message over the p2p/wire
+    surface) is the Phase-2 wiring on top of this provable in-process core.
+    """
+
+    def __init__(self, settlement_att, outcome_record, campaign_record, pledges,
+                 escrow: AccountNode, *, symbol: str = "PLS", claimed: set | None = None):
+        if not audit_settlement(settlement_att, outcome_record, campaign_record, pledges):
+            raise ValueError("settlement does not audit; refusing to service claims")
+        self._att = settlement_att
+        self._outcome = outcome_record
+        self._campaign = campaign_record
+        self._pledges = pledges
+        self._escrow = escrow
+        self._symbol = symbol
+        self._cid = settlement_att.cid
+        self._claimed = claimed if claimed is not None else set()
+        _mode, self._entries = settlement_entries(outcome_record, campaign_record, pledges)
+
+    def _key(self, pledge_cid: str) -> str:
+        return f"{self._cid}:{pledge_cid}"
+
+    def is_claimed(self, pledge_cid: str) -> bool:
+        """True iff the entry for ``pledge_cid`` in this settlement has already been claimed."""
+        return self._key(pledge_cid) in self._claimed
+
+    def owed(self, payee_addr: str) -> List[tuple]:
+        """The still-unclaimed ``(pledge_cid, amount)`` entries payable to ``payee_addr``."""
+        return [(cid, amount) for cid, payee, amount in self._entries
+                if payee == payee_addr and not self.is_claimed(cid)]
+
+    def claim(self, payee: AccountNode, timestamp: int) -> List[Knit]:
+        """Pay every unclaimed entry owed to ``payee``; return the applied Knits (may be empty).
+
+        Idempotent per entry: re-claiming after all of ``payee``'s entries are settled returns an
+        empty list rather than paying again. Raises :class:`EscrowError` on a self-transfer, a
+        cross-network payee, an underfunded escrow for the claim, or if the payee refuses its own
+        proposal (a mismatch that should never happen for an honest desk).
+        """
+        if payee.address == self._escrow.address:
+            raise EscrowError("a payee may not be the escrow itself (self-transfer)")
+        if payee.network != self._escrow.network:
+            raise EscrowError(f"payee {payee.address} is on a different network than the escrow")
+        pending = self.owed(payee.address)
+        due = sum(amount for _cid, amount in pending)
+        if self._escrow.balance(self._symbol) < due:
+            raise EscrowError(
+                f"escrow has {self._escrow.balance(self._symbol)} {self._symbol}, claim needs {due}")
+
+        knits: List[Knit] = []
+        for index, (pledge_cid, amount) in enumerate(pending):
+            proposed = self._escrow.propose(payee.pub, self._symbol, amount, timestamp + index)
+            # the claimant independently authorises the escrow's proposal before co-signing, so a
+            # forged claim for an entry not owed to this payee cannot be completed.
+            if not validate_payout(proposed, self._att, self._outcome, self._campaign,
+                                   self._pledges, payee.pub, symbol=self._symbol):
+                raise EscrowError("claim refused: proposal does not match the settlement")
+            signed = payee.accept(proposed)
+            ok, reason = _kw.validate_knit(signed, self._escrow.network)
+            if not ok:
+                raise EscrowError(f"refusing to apply invalid knit: {reason}")
+            self._escrow.apply_sent(signed)
+            payee.apply_received(signed)
+            self._claimed.add(self._key(pledge_cid))
+            knits.append(signed)
+        return knits

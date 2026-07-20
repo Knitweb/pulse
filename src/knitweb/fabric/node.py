@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import asyncio
 import random as _random_mod
+from typing import Callable
 from collections import deque
 
 from ..core import canonical, crypto
@@ -74,7 +75,17 @@ from ..p2p.inventory import (
 )
 from ..p2p import identity
 from ..p2p.mesh import GRAFT, PRUNE, IHAVE, IWANT, Gossipsub
+from ..p2p.policing import police_equivocation_report, police_invalid_proof
 from ..p2p.reconcile import ReconcileSession
+from ..p2p.wire import (
+    WireError,
+    equivocation_report_from_record,
+    multiproof_from_record,
+    multiproof_to_record,
+)
+from .equivocation import EquivocationReport
+from .feed import FeedHead, _head_signable
+from .feed_multiproof import _leaf, _levels, prove_range, verify_range_multiproof
 from .items import web_state_root
 from .web import Web
 from ..p2p.node import PeerAddress, StaticPeerBook
@@ -83,6 +94,11 @@ from ..p2p import wire
 from ..p2p.wire import WireError
 
 DEFAULT_DIFFUSE_MAX_MS = 10
+# #93: bounded anti-entropy target budget. `neighbours` XOR-near peers (from the
+# routing table when wired) + `fanout` random peers per cycle — an integer bound
+# independent of the total peer count.
+DEFAULT_AE_NEIGHBOURS = 8
+DEFAULT_AE_FANOUT = 3
 
 __all__ = ["FabricNode", "FabricNodeError", "WEB_TOPIC"]
 
@@ -189,6 +205,10 @@ class FabricNode(BaseNode):
         diffuse_max_ms: int = DEFAULT_DIFFUSE_MAX_MS,
         diffuse_seed: int | None = None,
         diffuse_sleep=None,
+        anti_entropy_neighbours: int = DEFAULT_AE_NEIGHBOURS,
+        anti_entropy_fanout: int = DEFAULT_AE_FANOUT,
+        anti_entropy_seed: int | None = None,
+        neighbour_source: "Callable[[], list[PeerAddress]] | None" = None,
     ) -> None:
         super().__init__(
             host=host,
@@ -202,6 +222,17 @@ class FabricNode(BaseNode):
         self.pub = crypto.public_from_private(priv)
         self.web = Web()
         self.peerbook = StaticPeerBook()
+        # #91: the node's own APPEND-ONLY weave log (inner record dicts in local
+        # arrival order) and per-server sync cursors. The log gives the record
+        # SET a stable, feed-like coordinate system on THIS node, so a returning
+        # peer can pull just entries[cursor:] under a range multiproof instead of
+        # the whole snapshot. Local bookkeeping only — no canonical bytes change.
+        self._sync_log: list[dict] = []
+        self._sync_cursors: dict[str, int] = {}
+        # #90: verified equivocation evidence, keyed by offending feed key — kept
+        # OUTSIDE the web (evidence, not knowledge; it must not move the state
+        # root) and re-servable so the ban propagates as portable proof.
+        self.equivocation_reports: dict[str, EquivocationReport] = {}
         # The single load-bearing new piece for lazy relay (#64): a per-node
         # CID -> verbatim signed-envelope frame bytes store. The frame is the
         # exact ``write_frame_bytes`` of the ``fabric-record`` envelope we wove
@@ -329,6 +360,19 @@ class FabricNode(BaseNode):
         # an operator explicitly disables it.
         self._diffuse_max_ms = max(0, int(diffuse_max_ms))
         self._diffuse_rng = _random_mod.Random(diffuse_seed)
+        # #93 bounded anti-entropy: per-cycle targets = up to `neighbours` XOR-near
+        # peers (from the injected routing-table source, if any) + a bounded random
+        # fan-out, so reconvergence cost is O(neighbours+fanout), NOT O(total peers).
+        # A seeded RNG keeps the fan-out deterministic under the virtual clock; it
+        # only chooses WHICH peers to pull, never touching a hash/signed path. A
+        # peer set at or below the budget is used whole (byte-identical to the old
+        # peerbook.all() behaviour for a classroom-scale web).
+        if anti_entropy_neighbours < 0 or anti_entropy_fanout < 0:
+            raise ValueError("anti-entropy neighbours/fanout must be >= 0")
+        self._ae_neighbours = anti_entropy_neighbours
+        self._ae_fanout = anti_entropy_fanout
+        self._neighbour_source = neighbour_source
+        self._ae_rng = _random_mod.Random(anti_entropy_seed)
         self._diffuse_sleep = diffuse_sleep if diffuse_sleep is not None else asyncio.sleep
 
     # -- server lifecycle -------------------------------------------------
@@ -407,13 +451,46 @@ class FabricNode(BaseNode):
             sleep=sleep,
         )
 
+    def _select_ae_targets(self, all_peers: "list[PeerAddress]") -> "list[PeerAddress]":
+        """Bounded anti-entropy target set (#93): up to `neighbours` XOR-near peers
+        + `fanout` random others, capped regardless of total peer count.
+
+        A set at or below the budget is returned whole (order-preserving) so a
+        small/classroom web behaves exactly as before. Above the budget: take the
+        injected routing-table neighbours first (deduped, address-keyed), then fill
+        the fan-out with a deterministic seeded sample of the remaining peers.
+        """
+        budget = self._ae_neighbours + self._ae_fanout
+        if budget <= 0 or len(all_peers) <= budget:
+            return list(all_peers)
+        by_key = {(p.transport, p.host, p.port, tuple(sorted(p.params.items()))): p
+                  for p in all_peers}
+        chosen: "list[PeerAddress]" = []
+        seen: set = set()
+
+        def _key(p):
+            return (p.transport, p.host, p.port, tuple(sorted(p.params.items())))
+
+        if self._neighbour_source is not None:
+            for p in self._neighbour_source():
+                k = _key(p)
+                if k in by_key and k not in seen and len(chosen) < self._ae_neighbours:
+                    chosen.append(by_key[k])
+                    seen.add(k)
+        remaining = [p for p in all_peers if _key(p) not in seen]
+        want = budget - len(chosen)
+        if want > 0 and remaining:
+            chosen.extend(self._ae_rng.sample(remaining, min(want, len(remaining))))
+        return chosen
+
     def _anti_entropy_rounds(
         self, peers: "list[PeerAddress] | None"
     ) -> "list[SyncRound]":
         async def sync_round() -> int:
-            targets = (
+            all_peers = (
                 peers if peers is not None else list(self.peerbook.all().values())
             )
+            targets = self._select_ae_targets(all_peers)
             if not targets:
                 return 0
             pulled = 0
@@ -694,6 +771,7 @@ class FabricNode(BaseNode):
         cid = self.web.weave(record)
         if len(self.web.nodes) > before:
             self.metrics.incr("records_woven")
+            self._sync_log.append(record)          # #91: authored records join the weave log
         # Store the verbatim signed-envelope frame bytes BEFORE announcing, so a
         # peer that wants this CID gets the exact bytes back (byte-identity). Marked
         # authored: our own records are authoritative and never evicted (#92).
@@ -1013,12 +1091,81 @@ class FabricNode(BaseNode):
 
     # -- catch-up sync ----------------------------------------------------
 
-    async def sync_from(self, peer: PeerAddress) -> int:
-        """Pull ``peer``'s full record set and weave any records we are missing.
+    # #91: cap per range request so one reply frame stays bounded; a big catch-up
+    # is simply several verified slices.
+    SYNC_RANGE_CHUNK = 512
 
-        Returns the number of newly woven records. This lets a node that joined
-        after some records were already gossiped converge to the same Web.
+    async def sync_from(self, peer: PeerAddress) -> int:
+        """Converge on ``peer``'s record set, pulling only what we are missing (#91).
+
+        Negotiation: ask for the peer's signed weave-log head first. With a
+        cursor from an earlier sync against the same peer key, only the log
+        slice ``[cursor, length)`` is pulled — verified entry-by-entry against
+        the signed head with a range multiproof, so an incremental catch-up
+        costs O(missing + log n) bytes instead of O(total). A forged or stale
+        slice penalises the serving key (``Offense.STALE_OR_FORGED_PROOF``) and
+        aborts. Cold start (no cursor), an old peer that does not speak
+        ``fabric-sync-head``, or a peer whose log shrank (should not happen —
+        the log is append-only) all fall back to the full snapshot.
+
+        Returns the number of newly woven records.
         """
+        head_msg = await self._send(peer, {"kind": "fabric-sync-head"})
+        head_raw = head_msg.get("head") if isinstance(head_msg, dict) else None
+        if head_msg.get("kind") != "fabric-sync-head" or not isinstance(head_raw, dict):
+            return await self._sync_full(peer)     # legacy peer — snapshot fallback
+        try:
+            head = FeedHead(feed=str(head_raw["feed"]), root=str(head_raw["root"]),
+                            length=int(head_raw["length"]), fork=int(head_raw["fork"]),
+                            sig=str(head_raw["sig"]))
+        except (KeyError, TypeError, ValueError):
+            return await self._sync_full(peer)
+        if head.length > 0 and not head.verify():
+            police_invalid_proof(self.reputation, head.feed)
+            raise FabricNodeError("fabric sync head failed signature verification")
+        if self.reputation.is_banned(head.feed):
+            raise FabricNodeError("refusing to sync from a banned peer key")
+
+        cursor = self._sync_cursors.get(head.feed, 0)
+        if head.length == cursor:
+            return 0                               # already converged — O(1) sync
+        if cursor == 0 or cursor > head.length:
+            added = await self._sync_full(peer)
+            self._sync_cursors[head.feed] = head.length
+            return added
+
+        added = 0
+        start = cursor
+        while start < head.length:
+            count = min(self.SYNC_RANGE_CHUNK, head.length - start)
+            msg = await self._send(peer, {"kind": "fabric-sync-range",
+                                          "start": start, "count": count})
+            if msg.get("kind") != "fabric-sync-range-data":
+                raise FabricNodeError(f"unexpected range response: {msg.get('kind')!r}")
+            entries = msg.get("entries")
+            if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+                raise FabricNodeError("fabric-sync-range-data entries must be maps")
+            try:
+                proof = multiproof_from_record(msg.get("proof"))
+            except WireError as exc:
+                raise FabricNodeError(f"bad range proof record: {exc}") from exc
+            if not verify_range_multiproof(head, entries, proof) or proof.start != start:
+                # provably wrong slice for the signed head — objective offense
+                police_invalid_proof(self.reputation, head.feed)
+                self.metrics.incr("sync_range_rejected")
+                raise FabricNodeError("range slice failed multiproof verification")
+            for record in entries:
+                if self._ingest_proven(record):
+                    added += 1
+            self.metrics.incr("sync_range_verified")
+            start += count
+        self._sync_cursors[head.feed] = head.length
+        if added:
+            self.metrics.incr("sync_pulls", added)
+        return added
+
+    async def _sync_full(self, peer: PeerAddress) -> int:
+        """The original full-snapshot pull — cold-start and legacy-peer fallback."""
         msg = await self._send(peer, {"kind": "fabric-sync-request"})
         if msg.get("kind") == "error":
             raise FabricNodeError(f"{msg.get('code')}: {msg.get('message')}")
@@ -1035,7 +1182,68 @@ class FabricNode(BaseNode):
             self.metrics.incr("sync_pulls", added)
         return added
 
+    def _ingest_proven(self, record: dict) -> bool:
+        """Weave a record whose provenance is a VERIFIED range multiproof (#91).
+
+        The multiproof against the serving key's signed head replaces the
+        per-record author signature the gossip path checks — same trust anchor
+        as the snapshot fallback, whose envelopes are re-signed by that same
+        serving key. Mirrors the #90 rules: evidence records are policed and
+        never woven.
+        """
+        if not isinstance(record, dict):
+            raise FabricNodeError("proven record must be a map")
+        if record.get("kind") == "equivocation-report":
+            self._police_report_record(record)
+            return False
+        is_edge = _is_edge_record(record)
+        before_nodes = len(self.web.nodes)
+        before_edges = len(self.web._out.get(record.get("src"), []))
+        if is_edge:
+            src, dst, rel = record.get("src"), record.get("dst"), record.get("rel")
+            weight = record.get("weight", 1)
+            if not isinstance(src, str) or not isinstance(dst, str) or not isinstance(rel, str):
+                raise FabricNodeError("fabric edge record missing src/dst/rel")
+            if not isinstance(weight, int) or isinstance(weight, bool) or weight < 0:
+                raise FabricNodeError("fabric edge weight must be a non-negative int")
+            if src not in self.web.nodes or dst not in self.web.nodes:
+                return False
+            edge = self.web.link(src, dst, rel, weight=weight)
+            cid = edge.cid
+            created = len(self.web._out.get(src, [])) > before_edges
+        else:
+            cid = canonical.cid(record)
+            self.web.weave(record)
+            created = len(self.web.nodes) > before_nodes
+        frame = self._signed_edge_msg(record) if is_edge else self._signed_record_msg(record)
+        self._store_frame(cid, frame)
+        self._inv.on_record(cid)
+        if created:
+            self.metrics.incr("records_woven")
+            self._sync_log.append(record)
+            return True
+        return False
+
     # -- ingestion --------------------------------------------------------
+
+    def _police_report_record(self, record: dict) -> bool:
+        """Verify a gossiped equivocation report from its bytes; ban on success (#90).
+
+        Structural parse errors and unverifiable reports are IGNORED (never a
+        penalty on hearsay — mirroring ``police_equivocation_report``); a report
+        that verifies bans ``report.offender`` in the shared reputation ledger,
+        is kept in :attr:`equivocation_reports` as portable evidence, and bumps
+        the ``equivocations_detected`` metric.
+        """
+        try:
+            report = equivocation_report_from_record(record)
+        except WireError:
+            return False
+        if not police_equivocation_report(self.reputation, report):
+            return False
+        self.equivocation_reports[report.offender] = report
+        self.metrics.incr("equivocations_detected")
+        return True
 
     def _ingest_signed(self, item, *, is_edge: "bool | None" = None) -> bool:
         """Verify an author-signed record envelope and weave it. True if new.
@@ -1064,6 +1272,22 @@ class FabricNode(BaseNode):
             raise FabricNodeError("record must be a map")
         if not crypto.verify(author, _record_signable(record), sig):
             raise FabricNodeError("invalid author signature on fabric record")
+        # ── #90 equivocation quarantine ─────────────────────────────────────
+        # A signed ``equivocation-report`` record is EVIDENCE, not knowledge: it is
+        # verified from its own bytes and policed (Offense.EQUIVOCATION is a full-
+        # threshold ban on the offending feed key), stored for re-gossip, and NOT
+        # woven — evidence must never move the web state root. Honest fork-bumped
+        # rewrites can never verify as a report (check_conflict requires the same
+        # fork), so legitimate truncate-and-rewrite is structurally exempt.
+        if record.get("kind") == "equivocation-report":
+            self._police_report_record(record)
+            return False
+        # Records authored by a key with a PROVEN equivocation are quarantined:
+        # refused without weaving (no exception — the relaying peer is innocent;
+        # the offense already landed on the author's key via the report).
+        if self.reputation.is_banned(author):
+            self.metrics.incr("records_quarantined")
+            return False
         if is_edge is None:
             # #163: route on the SIGNED record, never the relayer-controlled,
             # UNSIGNED envelope item['kind'] — that flip re-opened the partition.
@@ -1115,10 +1339,45 @@ class FabricNode(BaseNode):
         self._inv.on_record(cid)
         if created:
             self.metrics.incr("records_woven")
+            self._sync_log.append(record)          # #91: every newly woven record joins the log
             return True
         return False
 
     # -- server side ------------------------------------------------------
+
+    def _sync_head(self) -> FeedHead:
+        """A signed commitment to this node's weave log (#91): FeedHead semantics
+        with feed = our node key, root = the Merkle root over the log's record
+        leaves, length = log size, fork = 0 (the log is append-only by
+        construction — records are only ever appended when newly woven)."""
+        leaves = [_leaf(e) for e in self._sync_log]
+        root = _levels(leaves)[-1][0].hex() if leaves else ""
+        n = len(self._sync_log)
+        sig = crypto.sign(self._priv, _head_signable(self.pub, root, n, 0))
+        return FeedHead(feed=self.pub, root=root, length=n, fork=0, sig=sig)
+
+    def _serve_sync_head(self) -> dict:
+        h = self._sync_head()
+        return {"kind": "fabric-sync-head",
+                "head": {"feed": h.feed, "root": h.root, "length": h.length,
+                         "fork": h.fork, "sig": h.sig}}
+
+    def _serve_sync_range(self, msg: dict) -> dict:
+        start = msg.get("start")
+        count = msg.get("count")
+        if not isinstance(start, int) or not isinstance(count, int) or isinstance(start, bool) or isinstance(count, bool):
+            return {"kind": "error", "code": "bad-range", "message": "start/count must be ints"}
+        n = len(self._sync_log)
+        if count <= 0 or start < 0 or start + count > n:
+            return {"kind": "error", "code": "bad-range",
+                    "message": f"range [{start},{start + count}) out of bounds for {n}"}
+        proof = prove_range(self._sync_log, start, count)
+        h = self._sync_head()
+        return {"kind": "fabric-sync-range-data",
+                "entries": [dict(e) for e in self._sync_log[start:start + count]],
+                "proof": multiproof_to_record(proof),
+                "head": {"feed": h.feed, "root": h.root, "length": h.length,
+                         "fork": h.fork, "sig": h.sig}}
 
     def _serve_sync(self) -> dict:
         # Re-sign every node we hold under *our* key so a catching-up peer can
@@ -1167,6 +1426,10 @@ class FabricNode(BaseNode):
             return {"kind": "fabric-ack"}
         elif kind == "fabric-sync-request":
             return self._serve_sync()
+        elif kind == "fabric-sync-head":
+            return self._serve_sync_head()
+        elif kind == "fabric-sync-range":
+            return self._serve_sync_range(msg)
         elif kind == INV:
             return self._serve_inv(msg)
         elif kind == GETDATA:

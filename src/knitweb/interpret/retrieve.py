@@ -18,9 +18,31 @@ from typing import Iterable, Mapping
 from ..fabric import provenance
 from ..fabric.items import web_state_root
 from ..fabric.spatial_index import SpatialIndex
+from ..fabric.subscription import in_subscription_scope
 from ..fabric.web import Web
 
-__all__ = ["CandidateSet", "Candidate", "retrieve"]
+__all__ = ["CandidateSet", "Candidate", "Subscription", "retrieve"]
+
+
+@dataclass(frozen=True)
+class Subscription:
+    """Explicit subscription scope for a retrieve call.
+
+    All numeric fields are integers — no float comparisons on the
+    deterministic candidate path.
+    """
+
+    scope: tuple[str, ...]
+    max_candidates: int = 128
+    min_reputation: int = 0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scope, tuple) or not all(isinstance(s, str) and s for s in self.scope):
+            raise TypeError("Subscription.scope must be a tuple of non-empty str")
+        if not isinstance(self.max_candidates, int) or isinstance(self.max_candidates, bool) or self.max_candidates < 1:
+            raise ValueError("Subscription.max_candidates must be a positive integer")
+        if not isinstance(self.min_reputation, int) or isinstance(self.min_reputation, bool) or self.min_reputation < 0:
+            raise ValueError("Subscription.min_reputation must be a non-negative integer")
 
 
 def _require_iterable(name: str, value: Iterable[str] | None) -> tuple[str, ...] | None:
@@ -34,19 +56,6 @@ def _require_iterable(name: str, value: Iterable[str] | None) -> tuple[str, ...]
             raise TypeError(f"{name} entries must be non-empty str")
         out.append(item)
     return tuple(out)
-
-
-def _in_scope(record: dict, scope: tuple[str, ...] | None) -> bool:
-    if scope is None:
-        return True
-    values = {record.get("kind"), record.get("scope"), record.get("domain"), record.get("namespace")}
-    if any(v in scope for v in values if isinstance(v, str)):
-        return True
-    tags = record.get("tags")
-    if isinstance(tags, (list, tuple, set)):
-        if any(str(tag) in scope for tag in tags):
-            return True
-    return False
 
 
 def _to_query_dict(query: str | Mapping[str, object]) -> Mapping[str, object]:
@@ -130,18 +139,44 @@ class CandidateSet:
     source_ancestries: tuple[tuple[str, ...], ...]
 
     def records(self, web: Web) -> dict[str, dict]:
-        """Return the full records for all candidate CIDs (lazy pull by ``web.get``)."""
-        return {cid: web.get(cid) for cid in self.cids if web.get(cid) is not None}
+        """Return records for all candidate CIDs.
+
+        CIDs present in ``web`` return their full record. CIDs that are
+        referenced by candidate edges but absent from ``web.nodes`` return a
+        sentinel ``{"kind": "missing", "cid": X}`` so callers can request the
+        missing node from peers instead of silently dropping provenance links.
+        """
+        out: dict[str, dict] = {}
+        present: list[str] = []
+        for cid in self.cids:
+            rec = web.get(cid)
+            if rec is not None:
+                out[cid] = rec
+                present.append(cid)
+            else:
+                out[cid] = {"kind": "missing", "cid": cid}
+
+        # Surface CIDs that are edge targets of present candidates but absent
+        # from web. Only the present CIDs (cached above) have outgoing edges to
+        # follow, so we never re-fetch a candidate record here.
+        for cid in present:
+            for edge in web.outgoing_edges(cid):
+                dst = edge.dst
+                if dst not in out and web.get(dst) is None:
+                    out[dst] = {"kind": "missing", "cid": dst}
+
+        return out
 
 
 def retrieve(
     query: str | Mapping[str, object],
-    subscription: Iterable[str] | None,
+    subscription: "Subscription | Iterable[str] | None",
     web: Web,
     *,
     depth: int = 2,
     web_state_cid: str | None = None,
     spatial_index: SpatialIndex | None = None,
+    relation_types: Iterable[str] | None = None,
 ) -> CandidateSet:
     """Return a deterministic, subscription-gated candidate set from ``web``.
 
@@ -150,7 +185,8 @@ def retrieve(
     query
         A query string (seed CID or free text) or structured query mapping.
     subscription
-        One or more scope strings (``kind``/``scope`` style domains).
+        A :class:`Subscription` object, an iterable of scope strings, or ``None``
+        for unrestricted retrieval.
     web
         The shared web to query.
     web_state_cid
@@ -158,6 +194,10 @@ def retrieve(
         fast so a stale snapshot cannot silently cross web epochs.
     spatial_index
         Optional spatial index to union with graph traversal.
+    relation_types
+        Restrict traversal to edges whose ``rel`` is in this set. ``None`` (default)
+        follows all edge types. Takes precedence over ``query['rel']`` when both are
+        supplied so callers can filter without mutating the query mapping.
     """
     if depth < 0:
         raise ValueError("depth must be >= 0")
@@ -165,9 +205,25 @@ def retrieve(
     if web_state_cid is not None and web_state_root(web) != web_state_cid:
         raise ValueError("web_state_cid mismatch")
 
-    scope = _require_iterable("subscription", subscription)
+    sub_obj: Subscription | None = None
+    if isinstance(subscription, Subscription):
+        sub_obj = subscription
+        scope: tuple[str, ...] | None = subscription.scope or None
+    else:
+        scope = _require_iterable("subscription", subscription)
     q = _to_query_dict(query)
-    rel_filter = _query_rels(q)
+
+    # relation_types kwarg takes precedence over query['rel']
+    if relation_types is not None:
+        if isinstance(relation_types, str):
+            raise TypeError("relation_types must be an iterable of str, not str")
+        rel_filter: set[str] | None = set()
+        for r in relation_types:
+            if not isinstance(r, str) or not r:
+                raise TypeError("relation_types entries must be non-empty str")
+            rel_filter.add(r)
+    else:
+        rel_filter = _query_rels(q)
 
     seed_cids = _query_seeds(q, web)
     if not seed_cids:
@@ -193,7 +249,8 @@ def retrieve(
             if cid not in discovered:
                 discovered.append(cid)
 
-    scoped = [cid for cid in discovered if _in_scope(web.nodes[cid], scope)]
+    # Guard against edges pointing to nodes not yet synced to this web snapshot.
+    scoped = [c for c in discovered if c in web.nodes and in_subscription_scope(web.nodes[c], scope)]
 
     def _candidate_reputation(cid: str) -> int:
         score = 0
@@ -209,6 +266,13 @@ def retrieve(
 
     scored = [(cid, _candidate_reputation(cid)) for cid in scoped]
     ordered = sorted(scored, key=lambda item: (-item[1], item[0]))
+
+    if sub_obj is not None and sub_obj.min_reputation > 0:
+        ordered = [(cid, score) for cid, score in ordered if score >= sub_obj.min_reputation]
+
+    if sub_obj is not None:
+        ordered = ordered[: sub_obj.max_candidates]
+
     cids = tuple(cid for cid, _ in ordered)
     score_by_cid = {cid: score for cid, score in ordered}
 
@@ -233,3 +297,4 @@ def retrieve(
         candidates=tuple(candidate_records),
         source_ancestries=tuple(ancestor_records),
     )
+

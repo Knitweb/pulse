@@ -17,6 +17,7 @@ keywords = ["p2p", "peer-to-peer", "knowledge-graph", "provenance", "origintrail
 # (see knitweb.core.canonical) so the hash-critical path has zero external surface.
 dependencies = [
     "cryptography>=48.0.1",
+    "knitweb-knitfield>=0.1.0",  # PoUW registry + settlement policies (Phase 2)
 ]
 
 [project.urls]
@@ -34,6 +35,7 @@ p2p = ["py-libp2p"]
 compute = ["wgpu", "juliacall"]
 data = ["polars", "pyarrow>=23.0.1"]
 experiments = ["mlflow>=3.14.0"]
+fhe = ["tenseal>=0.3.14"]
 dev = ["pytest>=9.0.3"]
 
 [tool.hatch.build.targets.wheel]

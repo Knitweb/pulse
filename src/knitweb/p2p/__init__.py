@@ -11,7 +11,9 @@ from .node import (
 )
 from .relay import RelayError, RelayTransport
 from .reputation import DEFAULT_BAN_THRESHOLD, Offense, PeerReputation
+from .standing import BASE_WEIGHT_BPS, PeerStanding
 from .transport import Dialer, TcpTransport, Transport, parse_peer_uri
+from .webrtc_transport import WEBRTC_TAG, WebRtcError, WebRtcTransport, webrtc_peer_id
 
 __all__ = [
     "AsyncioP2PNode",
@@ -30,4 +32,10 @@ __all__ = [
     "Offense",
     "PeerReputation",
     "DEFAULT_BAN_THRESHOLD",
+    "PeerStanding",
+    "BASE_WEIGHT_BPS",
+    "WebRtcTransport",
+    "WebRtcError",
+    "webrtc_peer_id",
+    "WEBRTC_TAG",
 ]

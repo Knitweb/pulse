@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nit Reference — Knitweb</title>
+  <meta name="description" content="Why Nit is a useful client-architecture reference for Knitweb portable dapps.">
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .doc-wrap { max-width: 820px; margin: 0 auto; padding: clamp(32px,6vw,72px) clamp(18px,5vw,48px); }
+    .doc-back { font-size: 13px; color: var(--muted); text-decoration: none; }
+    .doc-back:hover { color: var(--ink); }
+    .doc-eyebrow { font-size: 11px; font-weight: 750; text-transform: uppercase;
+                   letter-spacing: .08em; color: var(--accent); margin: 28px 0 6px; }
+    h1 { font-size: clamp(28px,5vw,44px); font-weight: 800; line-height: 1.1; margin: 0 0 20px; }
+    h2 { font-size: 20px; font-weight: 750; margin: 40px 0 12px; padding-bottom: 8px;
+         border-bottom: 1px solid var(--line); }
+    p  { color: var(--muted); margin: 0 0 16px; font-size: 15px; line-height: 1.7; }
+    strong { color: var(--ink); }
+    code { font-family: ui-monospace, monospace; font-size: 13px;
+           background: var(--panel); padding: 2px 6px; border-radius: 3px;
+           color: var(--accent); border: 1px solid var(--line); }
+    ul, ol { margin: 0 0 16px; padding-left: 22px; }
+    li { color: var(--muted); font-size: 15px; margin-bottom: 6px; }
+    hr { border: none; border-top: 1px solid var(--line); margin: 36px 0; }
+    .poc-list { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
+    .poc-step { display: flex; gap: 14px; align-items: flex-start;
+                 padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px;
+                 background: var(--panel); }
+    .poc-num { font-size: 11px; font-weight: 750; color: var(--accent); flex-shrink: 0; min-width: 24px; }
+    .poc-text { font-size: 14px; color: var(--muted); }
+    .poc-text code { font-size: 12px; }
+    .note-box { border: 1px solid var(--warn); border-radius: 8px; padding: 14px 18px;
+                 background: rgba(244,201,93,.05); margin: 20px 0; }
+    .note-box p { color: var(--warn); margin: 0; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="../worlds.html">k.nitweb.art</a>
+    <nav aria-label="Primary">
+      <a href="../worlds.html#spectrum">Spectrum</a>
+      <a href="worlds-narrow-web.html">WNW doc</a>
+      <a href="repository-graph.html">Repo graph</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="doc-wrap">
+      <a class="doc-back" href="../worlds.html">← WNW dapp</a>
+      <p class="doc-eyebrow">Client architecture reference</p>
+      <h1>Nit Reference</h1>
+      <p>k.nitweb.art uses Nit as a reference point, not as the protocol runtime.</p>
+
+      <h2>What Nit Shows Well</h2>
+      <p>The Nit calculator example is useful because it separates:</p>
+      <ul>
+        <li><code>calculator_logic.nit</code> — pure application/business logic</li>
+        <li><code>calculator.nit</code> — portable app UI over <code>app.nit</code></li>
+        <li>Android/iOS modules — platform refinements around the same app logic</li>
+      </ul>
+      <p>The project Makefile builds desktop binaries, Android APKs, and iOS app bundles from the same application family. For Knitweb, the important lesson is: the client shell can change without rewriting the state model.</p>
+
+      <hr>
+
+      <h2>What We Do Not Claim</h2>
+      <div class="note-box">
+        <p>Nit does not make an application serverless or peer-to-peer by itself. The serverless property must come from the protocol.</p>
+      </div>
+      <p>The serverless property must come from:</p>
+      <ul>
+        <li>Local key ownership</li>
+        <li>Signed state transitions</li>
+        <li>Verifiable storage/proofs</li>
+        <li>Replaceable transport</li>
+        <li>Explicit relay selection instead of hard-coded central hosts</li>
+      </ul>
+      <p>That role belongs to Knitweb/Pulse.</p>
+
+      <hr>
+
+      <h2>Why It Helps k.nitweb.art</h2>
+      <p>Nit is a stable, lesser-known language ecosystem. Referencing it helps signal that Knitweb is not just a web framework or Python package. It is a fabric that can be rendered by unusual, durable, and native-feeling clients.</p>
+
+      <hr>
+
+      <h2>Possible Proof of Concept</h2>
+      <p>A small Nit-inspired proof should avoid blockchain theater and focus on a real portable-client contract:</p>
+      <div class="poc-list">
+        <div class="poc-step"><span class="poc-num">01</span><span class="poc-text">Load a signed Knitweb state fixture.</span></div>
+        <div class="poc-step"><span class="poc-num">02</span><span class="poc-text">Render wallet identity, useful work, and relation graph.</span></div>
+        <div class="poc-step"><span class="poc-num">03</span><span class="poc-text">Sign one local intent.</span></div>
+        <div class="poc-step"><span class="poc-num">04</span><span class="poc-text">Export the intent as protocol JSON.</span></div>
+        <div class="poc-step"><span class="poc-num">05</span><span class="poc-text">Submit it through an explicit peer/relay endpoint. <strong>Only this step should care about transport.</strong></span></div>
+      </div>
+    </div>
+  </main>
+
+  <footer style="padding:24px clamp(18px,5vw,72px); border-top:1px solid var(--line); font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <span>Knitweb · vang · Pulse</span>
+    <span><a href="https://knitweb.github.io/gither/" style="color:var(--muted)">gither</a> · <a href="https://github.com/Knitweb/pulse" style="color:var(--muted)">pulse</a></span>
+  </footer>
+  <script src="../nav.js" defer></script>
+</body>
+</html>

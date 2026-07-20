@@ -21,7 +21,7 @@ from .memory import (
     node_cid,
     node_from_record,
 )
-from .retrieve import Candidate, CandidateSet, retrieve
+from .retrieve import Candidate, CandidateSet, Subscription, retrieve
 
 __all__ = [
     "ArchitectureNode",
@@ -32,6 +32,7 @@ __all__ = [
     "ProjectNode",
     "Selection",
     "SkillNode",
+    "Subscription",
     "distill",
     "node_cid",
     "node_from_record",

@@ -206,3 +206,71 @@ def test_asyncio_node_feed_resync_heals_after_server_drop():
                 assert not client._anti_entropy_task.done()
 
     run(scenario())
+
+
+# ── #93: bounded anti-entropy target selection ───────────────────────────────
+
+def test_anti_entropy_targets_are_bounded_by_config_not_peer_count():
+    """A large peer set yields at most neighbours+fanout targets per cycle."""
+    from knitweb.p2p.transport import PeerAddress
+
+    node = FabricNode(anti_entropy_neighbours=4, anti_entropy_fanout=2, anti_entropy_seed=7)
+    peers = [PeerAddress(host=f"10.0.0.{i}", port=9000 + i) for i in range(500)]
+    picked = node._select_ae_targets(peers)
+    assert len(picked) == 6                      # 4 + 2, independent of the 500 total
+    # deterministic under the seed
+    node2 = FabricNode(anti_entropy_neighbours=4, anti_entropy_fanout=2, anti_entropy_seed=7)
+    assert [p.port for p in node2._select_ae_targets(peers)] == [p.port for p in picked]
+
+
+def test_small_peer_set_is_used_whole_unchanged():
+    from knitweb.p2p.transport import PeerAddress
+    node = FabricNode(anti_entropy_neighbours=8, anti_entropy_fanout=3)
+    peers = [PeerAddress(host="10.0.0.1", port=9001), PeerAddress(host="10.0.0.2", port=9002)]
+    assert node._select_ae_targets(peers) == peers    # <= budget → order-preserving, all
+
+
+def test_injected_neighbour_source_is_preferred_then_fanned_out():
+    from knitweb.p2p.transport import PeerAddress
+    peers = [PeerAddress(host="10.0.0.%d" % i, port=9000 + i) for i in range(50)]
+    near = [peers[3], peers[7]]                  # the "XOR-near" neighbours a routing table would give
+    node = FabricNode(anti_entropy_neighbours=2, anti_entropy_fanout=2,
+                      anti_entropy_seed=1, neighbour_source=lambda: near)
+    picked = node._select_ae_targets(peers)
+    assert len(picked) == 4
+    assert peers[3] in picked and peers[7] in picked          # neighbours always included
+    assert all(picked.count(p) == 1 for p in picked)          # no duplicate with the fan-out
+
+
+def test_bounded_selection_reconverges_a_drifted_node():
+    """The bounded set still heals a drifted node when the real peer is in range."""
+    async def scenario():
+        from knitweb.p2p.transport import PeerAddress
+
+        class _Clock:
+            def __init__(self): self.t = 0
+            async def sleep(self, s): self.t += s; await asyncio.sleep(0)
+
+        a = FabricNode()
+        async with a:
+            await a.weave({"kind": "knowledge", "title": "seed", "body": "x", "author": a.pub})
+            b = FabricNode(anti_entropy_neighbours=4, anti_entropy_fanout=2, anti_entropy_seed=3)
+            async with b:
+                # b's peerbook has the real peer plus decoys; bounded selection must
+                # still include enough to converge across cycles
+                b.add_peer("a", a.address)
+                for i in range(20):
+                    b.add_peer(f"decoy{i}", PeerAddress(host="10.9.9.%d" % i, port=1))
+                # the routing table always surfaces the real near peer, so the
+                # bounded set includes it every cycle (deterministic convergence)
+                b._neighbour_source = lambda: [a.address]
+                clock = _Clock()
+                task = b.start_anti_entropy(interval=1, sleep=clock.sleep)
+                for _ in range(60):
+                    await asyncio.sleep(0)
+                    if b.state_root == a.state_root:
+                        break
+                task.cancel()
+                assert b.state_root == a.state_root
+
+    run(scenario())

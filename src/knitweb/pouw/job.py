@@ -22,6 +22,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# Phase 2: Import generic PoUW registry from knitfield (decoupled decision algorithm)
+from knitweb_knitfield import (
+    VERIFICATION_SPLIT,
+    VERIFICATION_UNIFORM,
+    JobClass,
+    job_class,
+    register_job_class,
+    split_settles,
+    verification_policy,
+)
+
 from ..core import canonical
 from ..synaptic import bytecode as _bc
 from ..synaptic.origintrail import resolve_asset
@@ -44,6 +55,10 @@ __all__ = [
     "bundle_cid",
     "split_settles",
     "SplitVerdict",
+    # IL-108: per-class metering config for distill PoUW jobs
+    "DistillJobConfig",
+    "METERED_DISTILL_CONFIG",
+    "UNMETERED_RECURSE_FLAG",
 ]
 
 
@@ -109,23 +124,11 @@ def verify(job: SynapticCompileJob, proof: WorkProof) -> bool:
 # clear before any reward settles. The work itself is tagged ``mining``; the   #
 # verdict + reward is tagged ``settlement``.                                   #
 #                                                                             #
-# This module ships the registry, the manifest, and the settlement decision    #
-# predicate — all integer/str/tuple only, canonical-CBOR clean, no float ever  #
-# near a hashed byte. The deterministic-check and window-closed signals are     #
-# injected booleans so the IL-106/IL-107 producers plug in without touching     #
-# this contract. It is purely additive: the symbols the uniform path exports    #
-# (consumed by ``token.mint`` / ``pouw.escrow`` / ``pouw.marketplace``) are     #
-# untouched.                                                                    #
+# Phase 2: JobClass, register_job_class, job_class, verification_policy, and  #
+# split_settles have moved to knitweb_knitfield (decoupled decision layer).    #
+# This module now focuses on Pulse-specific job types (Synaptic, Distill).     #
+# The import + re-export pattern keeps all 29 call sites unchanged.            #
 # --------------------------------------------------------------------------- #
-
-#: The existing deterministic re-execution / tolerance-digest policy (GPU and
-#: synaptic-compile work that is byte-reproducible).
-VERIFICATION_UNIFORM = "uniform"
-#: The non-deterministic-work policy: deterministic structural re-check +
-#: challenge-window settlement, reward withheld until both clear (IL-105).
-VERIFICATION_SPLIT = "split"
-
-_VERIFICATION_POLICIES = frozenset({VERIFICATION_UNIFORM, VERIFICATION_SPLIT})
 
 #: Pipeline-stage tags (IL-105 AC4). The *work* is mining; the *verdict + reward*
 #: is settlement. Plain string tags so they ride canonical CBOR unchanged.
@@ -133,57 +136,12 @@ STAGE_MINING = "mining"
 STAGE_SETTLEMENT = "settlement"
 
 
-@dataclass(frozen=True)
-class JobClass:
-    """A registered PoUW job class and the verification policy it settles under."""
-
-    name: str
-    verification: str
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.name, str) or not self.name:
-            raise ValueError("job class name must be a non-empty str")
-        if self.verification not in _VERIFICATION_POLICIES:
-            raise ValueError(
-                f"unknown verification policy {self.verification!r} "
-                f"(expected one of {sorted(_VERIFICATION_POLICIES)})"
-            )
-
-
-_JOB_CLASSES: dict[str, JobClass] = {}
-
-
-def register_job_class(name: str, verification: str) -> JobClass:
-    """Register (or re-confirm) a job class -> verification policy mapping.
-
-    Idempotent for an identical (name, verification); raises on a conflicting
-    re-registration so a policy can never be silently flipped under a live name.
-    """
-    candidate = JobClass(name=name, verification=verification)
-    existing = _JOB_CLASSES.get(name)
-    if existing is not None and existing != candidate:
-        raise ValueError(
-            f"job class {name!r} already registered as {existing.verification!r}; "
-            f"refusing to redefine as {verification!r}"
-        )
-    _JOB_CLASSES[name] = candidate
-    return candidate
-
-
-def job_class(name: str) -> JobClass:
-    """Look up a registered job class. Raises ``KeyError`` if absent."""
-    return _JOB_CLASSES[name]
-
-
-def verification_policy(name: str) -> str:
-    """The verification policy string a registered job class settles under."""
-    return _JOB_CLASSES[name].verification
-
-
 # Built-in job classes: the legacy deterministic path stays UNIFORM; distill is
 # the first SPLIT-verified class.
 register_job_class("synaptic-compile", VERIFICATION_UNIFORM)
 register_job_class("distill", VERIFICATION_SPLIT)
+
+DISTILL_JOB_CLASS: JobClass = job_class("distill")
 
 
 def bundle_cid(bytecode: bytes) -> str:
@@ -349,3 +307,69 @@ def split_settles(
     single failing signal withholds the reward.
     """
     return bool(deterministic_ok) and bool(window_closed) and not bool(dispute_upheld)
+
+
+# --------------------------------------------------------------------------- #
+# IL-108 — Bounded self-reflective iteration as the metered PoUW default.     #
+#                                                                               #
+# A distill PoUW job that runs under the metered path MUST use mode="reflect" #
+# (bounded, no sub-spawns) so step and token costs are predictable and can be  #
+# settled deterministically.  mode="recurse" doubles max_iters internally and  #
+# is valid for local/unmetered exploration but MUST NOT be submitted as a PoUW  #
+# job — a verifier that re-executes the job would get a different budget.      #
+#                                                                               #
+# DistillJobConfig captures the metered defaults per job class so pouw/job.py  #
+# is the single source of truth for what a metered distill job looks like.     #
+# --------------------------------------------------------------------------- #
+
+_METERED_MODE = "reflect"
+_UNMETERED_MODE = "recurse"
+
+#: Sentinel that a mode string is the local-only, unmetered recursion mode.
+#: Callers MUST NOT submit a PoUW job with this mode.
+UNMETERED_RECURSE_FLAG: str = _UNMETERED_MODE
+
+
+@dataclass(frozen=True)
+class DistillJobConfig:
+    """Metering configuration for a distill PoUW job (IL-108 AC1+AC2).
+
+    ``mode``        — ``"reflect"`` for metered PoUW (default); ``"recurse"``
+                      is local/unmetered only and must not be submitted.
+    ``max_iters``   — hard step budget; the distill loop returns early with
+                      ``budget_exhausted=True`` when candidates exceed this.
+    ``max_tokens``  — advisory token budget passed to ``distill()``; exceeding
+                      it ends the run deterministically with best-so-far.
+    ``metered``     — True iff this config is valid for PoUW submission.
+    """
+
+    mode: str = _METERED_MODE
+    max_iters: int = 8
+    max_tokens: int = 2048
+    metered: bool = True
+
+    def __post_init__(self) -> None:
+        if self.mode not in {"reflect", "recurse"}:
+            raise ValueError(f"mode must be 'reflect' or 'recurse' (got {self.mode!r})")
+        if not isinstance(self.max_iters, int) or self.max_iters < 1:
+            raise ValueError("max_iters must be a positive int")
+        if not isinstance(self.max_tokens, int) or self.max_tokens < 1:
+            raise ValueError("max_tokens must be a positive int")
+        if self.mode == _UNMETERED_MODE and self.metered:
+            raise ValueError(
+                "mode='recurse' is unmetered/local-only; set metered=False explicitly"
+            )
+
+    @property
+    def is_metered(self) -> bool:
+        return self.metered and self.mode == _METERED_MODE
+
+
+#: The canonical metered config for a distill PoUW job (IL-108 AC1).
+#: This is what a spider MUST use when submitting work to the network.
+METERED_DISTILL_CONFIG: DistillJobConfig = DistillJobConfig(
+    mode="reflect",
+    max_iters=8,
+    max_tokens=2048,
+    metered=True,
+)
