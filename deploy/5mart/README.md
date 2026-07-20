@@ -40,22 +40,31 @@ Run the deploy from cron so 5mart.ml tracks every merge:
 
 `RelayTransport` (`src/knitweb/p2p/relay.py`) posts to
 `https://5mart.ml/api/relay/send` and `/api/relay/fetch` (path-style, no
-query string). `deploy.sh` publishes `api/relay/` into the webroot so those
-endpoints resolve; `relay.php` accepts both `?action=send` and the path-style
-`/api/relay/send` form, and answers `GET /api/relay/health` for liveness.
+query string). `api/relay/` here mirrors the implementation live on the
+5mart.ml host (endpoint-per-file + `_lib.php`, with a node registry and
+cross-host gossip so a browser monitor can show the network). The bundled
+`.htaccess` routes the extensionless paths to `send.php`/`fetch.php`/
+`heartbeat.php` and 403s the internals (`_config.php`, `_lib.php`, `_data/`).
+
+v2 hardening (design notes: `docs/RELAY_COMPETITIVE_NOTES.md`): undelivered
+frames expire after `RELAY_FRAME_TTL` (1 h), per-mailbox and global byte
+budgets refuse with an explicit 429, `fetch` honors the client's `wait` as a
+bounded long-poll (capped at `RELAY_MAX_WAIT`, default 8 s — every waiter
+pins a PHP worker on shared hosting), and frames are strictly
+base64-validated up to the wire limit (8 MiB). All limits are overridable
+via `define()` in `_config.php`.
 
 Two ways to serve it, depending on the host:
 
-- **Apache + PHP (TransIP shared hosting):** nothing else needed — the
-  bundled `api/relay/.htaccess` rewrites `/api/relay/{send,fetch,health}` to
-  `relay.php` and blocks direct access to the `_mailboxes/` queue files.
+- **Apache + PHP (TransIP shared hosting):** the bundle works as-is. Queue
+  files live in `api/relay/_data/` next to the scripts; the publish step
+  excludes that directory from `rsync --delete` so state survives redeploys.
+  ⚠️ The live 5mart.ml webroot is managed by selective SFTP uploads — never
+  point this script's `rsync --delete` at it without checking what else
+  lives there.
 - **nginx (no PHP):** run the FastAPI equivalent instead and proxy to it —
   `uvicorn scripts.relay_server:app --host 127.0.0.1 --port 8765` plus the
   `location /api/relay/` block in `nginx.conf` (shipped commented; enable it).
-
-Mailbox queues live in `api/relay/_mailboxes/` next to the script; the
-publish step excludes that directory from `rsync --delete` so queued frames
-survive redeploys.
 
 Smoke test after deploying:
 
@@ -66,7 +75,7 @@ curl -s -X POST https://5mart.ml/api/relay/send \
   -d '{"mailbox":"smoketest","rid":1,"frame":"aGVsbG8="}'
 curl -s -X POST https://5mart.ml/api/relay/fetch \
   -H 'Content-Type: application/json' \
-  -d '{"mailbox":"smoketest","wait":1}'   # → {"messages":[{"frame":"aGVsbG8="}]}
+  -d '{"mailbox":"smoketest","wait":1}'   # → {"messages":[{"rid":1,"frame":"aGVsbG8="}]}
 ```
 
 ## Notes
