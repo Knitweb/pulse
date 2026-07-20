@@ -88,7 +88,7 @@ done
 # atomic publish; keep the relay's live mailbox queues across redeploys
 say "publishing to $WEBROOT"
 mkdir -p "$WEBROOT"
-rsync -a --delete --exclude '/api/relay/_data' --exclude '/api/feed/_cache' --exclude '/api/faucet/_state' "$STAGE/" "$WEBROOT/"
+rsync -a --delete --exclude '/api/relay/_data' --exclude '/api/feed/_cache' --exclude '/api/faucet/_state' --exclude '/api/invite/_state' "$STAGE/" "$WEBROOT/"
 
 [ -n "$RELOAD" ] && { say "reloading web server"; eval "$RELOAD"; }
 
