@@ -68,11 +68,18 @@ when the relay's behavior changes.
    host now serves a hole-punch rendezvous (`api/relay/punch`) and
    `HttpRendezvous` binds `HolePunchTransport` to it, so peers graduate to
    direct TCP and the mailbox becomes the fallback floor (DCUtR-style).
-2. **Multi-relay client failover**: `RelayTransport` takes one `base_url`;
-   Nostr-style multi-homing (try knitweb.art when 5mart.ml refuses/429s)
-   is a small client change with real availability gain.
-3. **Per-IP token bucket** on send: shared hosting makes real rate limiting
-   awkward (no shared memory), but a coarse per-IP counter file would blunt
-   the cheapest abuse.
+2. ~~**Multi-relay client failover**~~ — **ALREADY EXISTED**: `RelayPool`
+   (#243) does Nostr-style fanout across relays with per-relay health
+   tracking and backoff. What's actually missing is a *second live relay
+   host* — knitweb.art serves no `/api/relay/` yet; deploying the PHP bundle
+   there is an ops task, not a code task. (Correcting this doc: it was
+   written without spotting `RelayPool`.)
+3. ~~**Per-IP token bucket** on send~~ — **DONE (third round)**: coarse
+   fixed-window counter file per source IP (`RELAY_SEND_PER_MIN`, default
+   120/min, fail-open, fetch unlimited), 429 beyond.
 4. **Relay self-metrics in the feed**: publish `status.php` snapshots into
    the FinField feed so relay health is itself P2P-distributed.
+5. **Feed mirror** — **DONE (third round)**: `api/feed/` mirrors the signed
+   FinField feed from GitHub raw with stale-while-error caching, making
+   5mart.ml a second HTTPS bootstrap origin (trust-free: heads are signed,
+   records content-addressed — a mirror cannot forge the feed).

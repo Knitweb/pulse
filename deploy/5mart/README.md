@@ -15,7 +15,8 @@ connected whole with the shared hop-menu (no dead ends).
 | `/quantum/` | `Knitweb/k.nitweb.art` → `quantum/` (QuantumV) |
 | `/chemfield/` | `Knitweb/chemfield` → `web/` (interactive 3D steel-slag logo) |
 | `/dapp/` | `Knitweb/molgang` → `serverless/web/` (pure-P2P MOLGANG — the engine in every tab, no backend) |
-| `/api/relay/` | this bundle's `api/relay/relay.php` (Knitweb p2p mailbox relay) |
+| `/api/relay/` | this bundle's `api/relay/` (Knitweb p2p mailbox relay + hole-punch rendezvous) |
+| `/api/feed/` | this bundle's `api/feed/` (FinField feed mirror — second HTTPS bootstrap origin) |
 | `/nav.js`   | the shared cross-host menu |
 
 ## Deploy (on the 5mart.ml host)
@@ -59,6 +60,17 @@ The host is also a **hole-punch rendezvous** (`/api/relay/punch`,
 (server-observed IP + declared port, BitTorrent-tracker model; owner-pinned
 per IP, 300 s TTL) and dialers resolve it to go **direct over TCP**, with
 the mailbox as fallback. Client binding: `knitweb.p2p.holepunch.HttpRendezvous`.
+
+`send` is additionally rate-limited per source IP (`RELAY_SEND_PER_MIN`,
+default 120/min, fail-open; `fetch` stays unlimited so shared-IP households
+are never starved).
+
+**Feed mirror** (`/api/feed/<path>`, `api/feed/index.php`): mirrors the
+signed FinField feed (`head.json`, `MANIFEST.json`, record shards) from
+GitHub raw with an on-disk cache (60 s for the moving heads, 600 s for
+shards) and stale-while-error, so nodes have a bootstrap origin that
+survives a GitHub outage. Trust-free: heads are signed and records
+content-addressed — a mirror cannot forge the feed.
 
 Two ways to serve it, depending on the host:
 

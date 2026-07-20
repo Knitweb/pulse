@@ -12,6 +12,7 @@ $frame   = $b['frame'] ?? '';
 $rid     = $b['rid'] ?? 0;
 if (!preg_match(MB_NAME_RE, $mailbox)) jexit(['ok'=>false,'error'=>'bad mailbox'], 400);
 if (!b64_frame_valid($frame)) jexit(['ok'=>false,'error'=>'bad frame'], 400);
+if (!rate_allow($_SERVER['REMOTE_ADDR'] ?? '')) jexit(['ok'=>false,'error'=>'rate limited'], 429);
 
 $path = mb_path($mailbox);
 $entry = json_encode(['rid'=>$rid,'frame'=>$frame,'t'=>time()]);
