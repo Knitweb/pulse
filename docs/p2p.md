@@ -104,7 +104,8 @@ is untouched.
 ### RelayTransport (`tag = "relay"`, `p2p/relay.py`)
 
 An HTTP client for a store-and-forward PHP relay (`api/relay/send` and
-`api/relay/fetch`). A firewalled node *listens* by registering a mailbox and
+`api/relay/fetch`; server-side implementation and deploy tooling live in
+`deploy/5mart/`). A firewalled node *listens* by registering a mailbox and
 polling `fetch`; a peer reaches it by `send`-ing to that mailbox instead of
 opening a socket. The relay is a dumb pipe: it carries **the same opaque,
 length-prefixed canonical-CBOR frame** the TCP transport carries, base64-wrapped

@@ -5,6 +5,7 @@
  * Bridget NAT/firewalled nodes én browser/lokale light-nodes op één P2P-net:
  *   POST api/relay/send   { "mailbox": <id>, "rid": <int>, "frame": <base64> }  -> { "ok": true }
  *   POST api/relay/fetch  { "mailbox": <id>, "wait": <sec> }  -> { "messages": [ { "frame": <base64> }, ... ] }
+ *   GET  api/relay/health -> { "ok": true, "service": "knitweb-relay", ... }
  *
  * Protocol exact volgens knitweb.p2p.relay (RelayTransport). Frames zijn opaak
  * (base64) — de relay leest of interpreteert ze nooit. Dependency-vrij PHP; werkt
@@ -19,15 +20,31 @@ header('Access-Control-Allow-Headers: Content-Type');
 header('Cache-Control: no-store');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
+
+// Actie: ?action=send (query-stijl) óf het laatste pad-segment — RelayTransport
+// post naar de extensieloze paden /api/relay/{send,fetch} (issue #337); de
+// bijgeleverde .htaccess herschrijft die naar relay.php met behoud van het pad.
+$action = isset($_GET['action']) ? $_GET['action'] : '';
+if ($action === '') {
+    $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+    $tail = basename((string)$path);
+    if (in_array($tail, array('send', 'fetch', 'health'), true)) { $action = $tail; }
+}
+
+// health mag met GET (curl-vriendelijke liveness-check); de rest is POST-only.
+if ($action === 'health') {
+    echo json_encode(['ok' => true, 'service' => 'knitweb-relay', 'time' => time()]);
+    exit;
+}
 if ($_SERVER['REQUEST_METHOD'] !== 'POST')    { http_response_code(405); echo json_encode(['ok' => false, 'error' => 'POST only']); exit; }
 
-$action = isset($_GET['action']) ? $_GET['action'] : '';
 $raw    = file_get_contents('php://input');
 if (strlen($raw) > 4000000) { echo json_encode(['ok' => false, 'error' => 'payload too large']); exit; }
 $body   = json_decode($raw, true);
 if (!is_array($body)) { echo json_encode(['ok' => false, 'error' => 'bad json']); exit; }
 
-// Mailbox-opslag buiten de webroot-inhoud; per mailbox één append-only queue-bestand.
+// Mailbox-opslag naast dit script (directe HTTP-toegang tot _mailboxes/ wordt
+// door de .htaccess geblokkeerd); per mailbox één append-only queue-bestand.
 $DATA = __DIR__ . '/_mailboxes';
 if (!is_dir($DATA)) { @mkdir($DATA, 0700, true); }
 

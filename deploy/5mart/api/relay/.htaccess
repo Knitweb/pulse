@@ -1,0 +1,7 @@
+# RelayTransport (src/knitweb/p2p/relay.py) posts to the extensionless paths
+# /api/relay/{send,fetch} — route those (plus /health) to relay.php, which also
+# reads the action from the request path (issue #337).
+RewriteEngine On
+RewriteRule ^_mailboxes(/|$) - [F,L]
+RewriteRule ^(send|fetch|health)$ relay.php [L,QSA]
+Options -Indexes
