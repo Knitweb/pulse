@@ -124,3 +124,15 @@ pip install 'knitweb[vision]'                                        # real YOLO
 PYTHONPATH=src python3 examples/pulse_ar_server.py --host 0.0.0.0 --port 8008
 # then open http://<ip>:8008 in a browser, or point clients/quest3s/ at it
 ```
+
+## The single observation path (E14)
+
+There is exactly one ledger-facing observation canon: `fabric.observation.FieldObservation`.
+The pulse_ar stack keeps its richer device-side record (`ObjectObservation`, BLE mesh,
+verify-before-trust), and `edge/pulse_ar/bridge.py` is the one place the two meet:
+
+    detection → ObjectObservation → SignedObservation (mesh, verify)
+        → bridge.to_field_observation → attest_observation → weave → PAR bounty
+
+Confidence maps 10000 bps → 1000 milli by floor division, so only a true full-confidence
+claim crosses as confirmed; everything else keeps the requires-confirmation contract.
