@@ -122,13 +122,25 @@ canonical/hashed bytes. `HttpPoster` is an injectable stdlib-`urllib` seam (run
 off-loop via `asyncio.to_thread`) so tests drive an in-memory relay without a
 socket.
 
-### Hole-punch seam
+### Hole-punch seam (`tag = "hp"`, `p2p/holepunch.py`)
 
-A future STUN-assisted hole-punch transport slots in behind the same `Transport`
+The STUN-assisted hole-punch transport slots in behind the same `Transport`
 protocol: it implements `listen` exactly as TCP does, differing only in how its
 listening socket becomes reachable (rendezvous → simultaneous-open → hand the
 connected socket to the same handler loop). Neither the protocol nor the node
 layer needs to change. See the `HOLE-PUNCH SEAM` note on `Transport.listen`.
+
+The coordination spider is an injected `Rendezvous`. `InMemoryRendezvous`
+serves tests; **`HttpRendezvous` is the production binding** to a relay host's
+`api/relay/punch` endpoint (`deploy/5mart/api/relay/punch.php`), speaking a
+four-action JSON API (`whoami`/`register`/`resolve`/`unregister`) over the same
+injectable `HttpPoster` seam the relay transport uses. BitTorrent-tracker
+model: the public host is server-observed (unspoofable), the port is the
+listener's declared bound port; registrations are owner-pinned per IP and
+expire on a short TTL. A resolved-but-undialable endpoint (crashed listener,
+symmetric NAT) is treated ICE-style as a dead candidate: `dial` falls back to
+the peer's relay mailbox instead of failing, so the relay is the floor and a
+punched direct TCP session — byte-identical frames — is the fast path.
 
 ## Node stacks
 

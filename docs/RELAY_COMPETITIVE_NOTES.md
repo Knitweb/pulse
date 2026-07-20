@@ -64,9 +64,10 @@ when the relay's behavior changes.
 
 ## Next steps worth taking (not in this round)
 
-1. **Direct-upgrade coordination**: use the relay to exchange hole-punch
-   offers (DCUtR-style) so peers graduate off the relay — the client seams
-   exist; the relay only needs to carry the frames, which it already does.
+1. ~~**Direct-upgrade coordination**~~ — **DONE (second round)**: the relay
+   host now serves a hole-punch rendezvous (`api/relay/punch`) and
+   `HttpRendezvous` binds `HolePunchTransport` to it, so peers graduate to
+   direct TCP and the mailbox becomes the fallback floor (DCUtR-style).
 2. **Multi-relay client failover**: `RelayTransport` takes one `base_url`;
    Nostr-style multi-homing (try knitweb.art when 5mart.ml refuses/429s)
    is a small client change with real availability gain.
