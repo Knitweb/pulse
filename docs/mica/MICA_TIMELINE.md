@@ -22,7 +22,7 @@ counsel. "wd" = working days.
 | Marketing communications: fair, clear, consistent with the white paper, identified as marketing | Art. 7 | Comms policy must exist *before* any launch marketing |
 | Retail right of withdrawal, 14 days, for paid offers not yet admitted to trading | Art. 13 | Only relevant once anything is *sold*; faucet grants are free |
 | Modifications require an updated white paper + notification | Art. 12 | Ongoing obligation from M4 |
-| Exemptions: <150 persons per Member State; ≤ €1,000,000 total consideration per 12 months; qualified investors only | Art. 4(2) | The faucet's 150/country cap is designed to this line |
+| Exemptions: **fewer than 150** persons per Member State (i.e. ≤149); ≤ €1,000,000 total consideration per 12 months; qualified investors only | Art. 4(2) | The faucet's 150/country cap sits one above this line — see memo §2 posture 3 for the 149-vs-150 decision |
 | Title II does not apply to free offers (but "free" fails if personal data or fees flow back) and to crypto-assets automatically created as rewards for DLT maintenance / transaction validation | Art. 4(3) | Zero-PII faucet + no-premine PoUW/observation minting are the reliance facts |
 | Admission to trading on a trading platform triggers white-paper duties regardless of offer exemptions | Art. 5 | Any future listing re-opens the full Title II path |
 
@@ -39,9 +39,11 @@ counsel. "wd" = working days.
 
 ## Standing constraints while in the exempt phase (now → M4)
 
-1. Faucet grant counters stay **< 150 per EU/EEA Member State** (the code
-   enforces exactly 150 granted places; the waitlist is the compliance
-   buffer — do not raise the cap for EU countries without counsel).
+1. Faucet grant counters stay at the per-country cap (code enforces 150
+   granted places; the waitlist is the compliance buffer). Note that Art.
+   4(2)(a) covers "fewer than 150" = **max 149** — the 149-vs-150 decision
+   for EU/EEA countries is with the owners (memo §2, posture 3); never
+   raise the cap for EU countries without counsel.
 2. The faucet keeps collecting **no personal data** and charging nothing —
    that is what keeps the free-offer route open.
 3. No marketing that presents PLS/PAR as investment products; any
