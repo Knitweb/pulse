@@ -53,6 +53,10 @@ cp "$(dirname "$0")/nav.js" "$STAGE/nav.js"
 cp "$(dirname "$0")/index.html" "$STAGE/index.html" 2>/dev/null || true
 cp "$(dirname "$0")/robots.txt" "$STAGE/robots.txt" 2>/dev/null || true
 
+# the Knitweb p2p relay API (issue #337): publish /api/relay/{send,fetch,health}
+# alongside the site so RelayTransport's mailbox endpoints resolve
+rsync -a "$(dirname "$0")/api/" "$STAGE/api/"
+
 for entry in "${MAP[@]}"; do
   IFS='|' read -r repo sub dest <<<"$entry"
   say "fetch $repo/$sub → /$dest"
@@ -72,12 +76,12 @@ for entry in "${MAP[@]}"; do
   cp "$STAGE/nav.js" "$STAGE/$dest/nav.js"
 done
 
-# atomic publish
+# atomic publish; keep the relay's live mailbox queues across redeploys
 say "publishing to $WEBROOT"
 mkdir -p "$WEBROOT"
-rsync -a --delete "$STAGE/" "$WEBROOT/"
+rsync -a --delete --exclude '/api/relay/_mailboxes' "$STAGE/" "$WEBROOT/"
 
 [ -n "$RELOAD" ] && { say "reloading web server"; eval "$RELOAD"; }
 
-printf '\n\033[32m✓ 5mart.ml is in sync\033[0m — served: / · /wnw · /lens · /molgang · /quantum · /chemfield · /dapp\n'
+printf '\n\033[32m✓ 5mart.ml is in sync\033[0m — served: / · /wnw · /lens · /molgang · /quantum · /chemfield · /dapp · /api/relay\n'
 say "clean up: rm -rf $WORK   (or keep it to speed up the next sync)"
