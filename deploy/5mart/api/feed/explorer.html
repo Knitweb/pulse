@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knitweb feed explorer — don't trust, verify</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 1.5rem; background: #0d1117; color: #c9d1d9;
+         font: 14px/1.5 ui-monospace, "Cascadia Code", Menlo, monospace; }
+  h1 { font-size: 1.1rem; margin: 0 0 .25rem; color: #e6edf3; }
+  .sub { color: #8b949e; margin-bottom: 1.25rem; }
+  a { color: #58a6ff; }
+  select, button, input { background: #161b22; color: #c9d1d9; border: 1px solid #30363d;
+         border-radius: 6px; padding: .4rem .8rem; font: inherit; }
+  button { cursor: pointer; } button:hover { border-color: #58a6ff; }
+  .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-bottom: 1rem; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+          padding: .8rem 1rem; margin-bottom: 1rem; overflow-x: auto; }
+  .kv { display: grid; grid-template-columns: 6.5rem 1fr; gap: .15rem .8rem; }
+  .kv span { color: #8b949e; } .kv code { word-break: break-all; }
+  .badge { font-size: 1.05rem; padding: .5rem 1rem; border-radius: 8px; display: inline-block; }
+  .ok  { background: #12261e; color: #3fb950; border: 1px solid #238636; }
+  .bad { background: #2d1214; color: #f85149; border: 1px solid #da3633; }
+  .dim { color: #8b949e; }
+  progress { width: 14rem; }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-all; font-size: .85em; }
+  .rec { border-bottom: 1px solid #21262d; padding: .3rem 0; }
+  @media (prefers-color-scheme: light) {
+    :root { color-scheme: light; }
+    body { background: #fff; color: #1f2328; } h1 { color: #1f2328; }
+    .card, select, button, input { background: #f6f8fa; border-color: #d1d9e0; }
+    .ok { background: #e6f4ea; } .bad { background: #fce8e6; }
+  }
+</style>
+</head>
+<body>
+<h1>Feed explorer <span class="dim" style="font-weight:normal">— don't trust, verify</span></h1>
+<div class="sub">recomputes the Merkle root over every record <em>in your tab</em> (canonical CBOR + SHA-256,
+the exact bytes <code>knitweb.fabric.feed</code> signs) and compares it against the published head.
+<a href="../relay/monitor.html">monitor</a></div>
+
+<div class="row">
+  <select id="feed">
+    <option value="ops/">ops feed (relay health)</option>
+    <option value="">main feed (FinField data)</option>
+  </select>
+  <button id="load">Load head</button>
+  <button id="verify" disabled>Download all records &amp; verify root</button>
+  <progress id="prog" max="100" value="0" hidden></progress>
+  <span id="timing" class="dim"></span>
+</div>
+
+<div id="headcard" class="card" hidden>
+  <div class="kv" id="headkv"></div>
+</div>
+<div id="badge"></div>
+
+<div id="reccard" class="card" hidden>
+  <div class="row" style="margin-bottom:.5rem">
+    <input id="filter" placeholder="filter loaded records…" style="flex:1">
+    <span id="reccount" class="dim"></span>
+  </div>
+  <div id="records"></div>
+</div>
+
+<div class="card dim" style="font-size:.85em">
+The root check proves the records ARE the set the head commits to. The head's
+secp256k1 signature itself is one line with pulse:<br>
+<pre id="snippet">python3 -c "import json,urllib.request as u; from knitweb.fabric.feed import FeedHead, verify_head; h=json.load(u.urlopen('HEAD_URL')); print(verify_head(FeedHead(**h)))"</pre>
+<button id="copy" style="margin-top:.4rem">Copy snippet</button>
+</div>
+
+<script>
+"use strict";
+/* knitweb canonical-CBOR subset + Merkle — JS twin of knitweb.core, verified
+   byte-for-byte against Python on live feeds before shipping. */
+function head(major, len) {
+  const mt = major << 5;
+  if (len < 24) return Uint8Array.of(mt | len);
+  if (len < 0x100) return Uint8Array.of(mt | 24, len);
+  if (len < 0x10000) return Uint8Array.of(mt | 25, len >> 8, len & 0xff);
+  if (len < 0x100000000) { const b = new Uint8Array(5); b[0] = mt | 26;
+    new DataView(b.buffer).setUint32(1, len); return b; }
+  const b = new Uint8Array(9); b[0] = mt | 27;
+  new DataView(b.buffer).setBigUint64(1, BigInt(len)); return b;
+}
+function concat(parts) {
+  let n = 0; for (const p of parts) n += p.length;
+  const out = new Uint8Array(n); let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+function byteLt(a, b) {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) if (a[i] !== b[i]) return a[i] < b[i];
+  return a.length < b.length;
+}
+function encodeCanonical(v) {
+  if (v === null) return Uint8Array.of(0xf6);
+  if (v === false) return Uint8Array.of(0xf4);
+  if (v === true) return Uint8Array.of(0xf5);
+  if (typeof v === "number") {
+    if (!Number.isSafeInteger(v)) throw new Error("record holds a float or >53-bit integer — verify offline with pulse");
+    return v >= 0 ? head(0, v) : head(1, -1 - v);
+  }
+  if (typeof v === "string") { const b = new TextEncoder().encode(v);
+    return concat([head(3, b.length), b]); }
+  if (Array.isArray(v)) return concat([head(4, v.length), ...v.map(encodeCanonical)]);
+  if (typeof v === "object") {
+    const entries = Object.entries(v).map(([k, val]) => [encodeCanonical(k), encodeCanonical(val)]);
+    entries.sort((a, b) => (byteLt(a[0], b[0]) ? -1 : byteLt(b[0], a[0]) ? 1 : 0));
+    return concat([head(5, entries.length), ...entries.flat()]);
+  }
+  throw new Error("unencodable value: " + typeof v);
+}
+async function sha256(bytes) { return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)); }
+async function merkleRoot(leaves) {
+  if (!leaves.length) return sha256(new Uint8Array(0));
+  let level = leaves.slice();
+  while (level.length > 1) {
+    if (level.length % 2 === 1) level.push(level[level.length - 1]);
+    const next = [];
+    for (let i = 0; i < level.length; i += 2) next.push(await sha256(concat([level[i], level[i + 1]])));
+    level = next;
+  }
+  return level[0];
+}
+const hex = b => Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
+const esc = x => String(x).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ---- UI ---- */
+let HEAD = null, LINES = [];
+const $ = id => document.getElementById(id);
+const base = () => $("feed").value;
+
+$("load").onclick = async () => {
+  $("badge").innerHTML = ""; $("reccard").hidden = true; LINES = [];
+  try {
+    HEAD = await (await fetch(base() + "head.json", {cache: "no-store"})).json();
+  } catch (e) { $("badge").innerHTML = '<span class="badge bad">head unreachable</span>'; return; }
+  const kv = [["feed", HEAD.feed], ["root", HEAD.root], ["length", HEAD.length],
+              ["fork", HEAD.fork], ["sig", HEAD.sig]];
+  $("headkv").innerHTML = kv.map(([k, v]) => `<span>${k}</span><code>${esc(v)}</code>`).join("");
+  $("headcard").hidden = false; $("verify").disabled = false;
+  $("snippet").textContent = $("snippet").textContent.replace(/HEAD_URL|https:\/\/[^']*head\.json/,
+    location.origin + location.pathname.replace(/explorer\.html$/, "") + base() + "head.json");
+};
+
+$("verify").onclick = async () => {
+  $("verify").disabled = true; $("prog").hidden = false; $("prog").value = 0;
+  $("badge").innerHTML = ""; $("timing").textContent = "";
+  const t0 = performance.now();
+  try {
+    const manifest = await (await fetch(base() + "MANIFEST.json", {cache: "no-store"})).json();
+    const shards = manifest.shards || [];
+    LINES = [];
+    for (let i = 0; i < shards.length; i++) {
+      const raw = await (await fetch(base() + shards[i], {cache: "no-store"})).text();
+      for (const l of raw.split("\n")) if (l.trim()) LINES.push(l);
+      $("prog").value = ((i + 1) / (shards.length + 1)) * 100;
+    }
+    const leaves = [];
+    for (let i = 0; i < LINES.length; i++) {
+      leaves.push(await sha256(encodeCanonical(JSON.parse(LINES[i]))));
+      if (i % 5000 === 0) $("prog").value = 100 * (shards.length + i / LINES.length) / (shards.length + 1);
+    }
+    const root = hex(await merkleRoot(leaves));
+    const ms = Math.round(performance.now() - t0);
+    const okLen = LINES.length === HEAD.length;
+    if (root === HEAD.root && okLen) {
+      $("badge").innerHTML = `<span class="badge ok">✓ root verified — ${LINES.length} records are exactly the set this head commits to</span>`;
+    } else {
+      $("badge").innerHTML = `<span class="badge bad">✗ mismatch — computed ${root.slice(0,16)}…, head ${HEAD.root.slice(0,16)}… (${LINES.length}/${HEAD.length} records)</span>`;
+    }
+    $("timing").textContent = ms + " ms in this tab";
+    renderRecords();
+  } catch (e) {
+    $("badge").innerHTML = `<span class="badge bad">✗ ${esc(e.message)}</span>`;
+  }
+  $("prog").hidden = true; $("verify").disabled = false;
+};
+
+function renderRecords() {
+  const q = $("filter").value.toLowerCase();
+  const hits = q ? LINES.filter(l => l.toLowerCase().includes(q)) : LINES;
+  const show = hits.slice(-20).reverse();
+  $("records").innerHTML = show.map(l => `<div class="rec"><pre>${esc(l)}</pre></div>`).join("")
+    || '<div class="dim">no matches</div>';
+  $("reccount").textContent = `${hits.length} match${hits.length === 1 ? "" : "es"} · showing last ${show.length}`;
+  $("reccard").hidden = false;
+}
+$("filter").oninput = renderRecords;
+$("copy").onclick = () => navigator.clipboard.writeText($("snippet").textContent);
+</script>
+</body>
+</html>
