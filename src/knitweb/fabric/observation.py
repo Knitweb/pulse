@@ -156,6 +156,46 @@ class FieldObservation:
             capture_digest=digest,
         )
 
+    # -- strict record round trip ------------------------------------------
+
+    _RECORD_FIELDS = frozenset({
+        "kind", "geohash", "alt_band", "label", "backend", "confidence_milli",
+        "target", "observer", "beat", "pod_ref", "capture_digest",
+    })
+
+    @classmethod
+    def from_record(cls, record: dict) -> "FieldObservation":
+        """Rebuild an observation from a woven/received record — strictly.
+
+        Anything that is not exactly a field-observation record is refused:
+        wrong ``kind``, unknown fields, or missing required fields all raise.
+        Every value constraint re-runs through ``__post_init__``, so a peer's
+        record gets the same validation as a locally built one.
+        """
+        if not isinstance(record, dict):
+            raise TypeError("record must be a dict")
+        if record.get("kind") != OBSERVATION_KIND:
+            raise ValueError(f"record kind must be {OBSERVATION_KIND!r}")
+        unknown = set(record) - cls._RECORD_FIELDS
+        if unknown:
+            raise ValueError(f"unknown record fields: {sorted(unknown)}")
+        missing = {"geohash", "alt_band", "label", "backend", "confidence_milli",
+                   "target", "observer", "beat"} - set(record)
+        if missing:
+            raise ValueError(f"missing record fields: {sorted(missing)}")
+        return cls(
+            geohash=record["geohash"],
+            alt_band=record["alt_band"],
+            label=record["label"],
+            backend=record["backend"],
+            confidence_milli=record["confidence_milli"],
+            target=record["target"],
+            observer=record["observer"],
+            beat=record["beat"],
+            pod_ref=record.get("pod_ref"),
+            capture_digest=record.get("capture_digest"),
+        )
+
     # -- confirmation contract ---------------------------------------------
 
     @property
