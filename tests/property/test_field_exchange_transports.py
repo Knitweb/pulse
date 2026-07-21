@@ -23,7 +23,12 @@ from typing import Awaitable, Callable, Optional
 import pytest
 
 from knitweb.core import crypto
-from knitweb.edge.exchange import ExchangeVerifyError, FieldGlass, pack_observations
+from knitweb.edge.exchange import (
+    FIELD_BUNDLE_OP,
+    FieldGlass,
+    make_bundle_handler,
+    pack_observations,
+)
 from knitweb.edge.observer import GlassObserver
 from knitweb.edge.recognize import MarkerBackend, recognize
 from knitweb.fabric.web import Web
@@ -39,7 +44,7 @@ _POT_CID = "bafyreilp001"
 _AMS = (52.3702, 4.8952)
 _PARIS = (48.8566, 2.3522)
 
-BUNDLE_OP = "field-bundle"
+BUNDLE_OP = FIELD_BUNDLE_OP
 
 
 def _bundle_at(lat: float, lon: float, marker: str = "qr:pot-7") -> bytes:
@@ -52,18 +57,8 @@ def _bundle_at(lat: float, lon: float, marker: str = "qr:pot-7") -> bytes:
 
 
 def _receiver_handler(receiver: FieldGlass) -> Callable[[dict], Awaitable[dict]]:
-    """The device-side dispatch a listening glass runs for field bundles."""
-
-    async def handler(request: dict) -> dict:
-        if request.get("op") != BUNDLE_OP:
-            return {"op": BUNDLE_OP, "error": "unknown-op"}
-        try:
-            accepted = receiver.receive(request["bundle"])
-        except ExchangeVerifyError:
-            return {"op": BUNDLE_OP, "error": "verify-failed"}
-        return {"op": BUNDLE_OP, "accepted": accepted}
-
-    return handler
+    """Shared dispatch from the exchange module — the dapp-facing contract."""
+    return make_bundle_handler(receiver)
 
 
 # ── BitChat / BLE ───────────────────────────────────────────────────────────

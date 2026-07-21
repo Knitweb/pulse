@@ -37,11 +37,17 @@ __all__ = [
     "pack_observations",
     "unpack_observations",
     "FieldGlass",
+    "make_bundle_handler",
     "BUNDLE_KIND",
+    "FIELD_BUNDLE_OP",
     "MAX_BUNDLE_OBSERVATIONS",
 ]
 
 BUNDLE_KIND = "field-observation-bundle"
+
+# The wire ``op`` a listening glass answers on, shared by every carrier so
+# apps/dapps don't each invent their own dispatch contract.
+FIELD_BUNDLE_OP = "field-bundle"
 
 # Resource bound, in the spirit of the capped serve paths in fabric/node.py:
 # one bundle can never make a receiver verify an unbounded amount of ECDSA.
@@ -182,3 +188,32 @@ class FieldGlass:
     @property
     def accepted_count(self) -> int:
         return len(self._accepted)
+
+
+def make_bundle_handler(receiver: FieldGlass):
+    """The device-side dispatch a listening glass runs for field bundles.
+
+    Returns the async transport handler (the shape every carrier's ``listen``
+    expects) implementing the shared ack contract:
+
+    * ``{"op": FIELD_BUNDLE_OP, "accepted": n}`` — bundle verified; ``n``
+      observations were near the wearer and newly kept;
+    * ``{"op": FIELD_BUNDLE_OP, "error": "verify-failed"}`` — the bundle
+      failed all-or-nothing verification and nothing was kept;
+    * ``{"op": FIELD_BUNDLE_OP, "error": "unknown-op"}`` — the request was
+      not a field bundle.
+
+    One helper instead of one hand-rolled dispatch per app: register it on a
+    BitChat/WebRTC/TCP transport and the glass answers bundles on any carrier.
+    """
+
+    async def handler(request: dict) -> dict:
+        if request.get("op") != FIELD_BUNDLE_OP:
+            return {"op": FIELD_BUNDLE_OP, "error": "unknown-op"}
+        try:
+            accepted = receiver.receive(request["bundle"])
+        except (ExchangeVerifyError, KeyError, TypeError):
+            return {"op": FIELD_BUNDLE_OP, "error": "verify-failed"}
+        return {"op": FIELD_BUNDLE_OP, "accepted": accepted}
+
+    return handler
