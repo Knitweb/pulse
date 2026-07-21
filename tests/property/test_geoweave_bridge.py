@@ -210,3 +210,27 @@ def test_target_map_is_deterministic_on_title_collisions():
         label_map_from_web(web, class_confidence_milli=1001)
     with pytest.raises(TypeError):
         label_map_from_web(web, class_confidence_milli=0.9)  # type: ignore[arg-type]
+
+
+# --- SDK facade -------------------------------------------------------------
+
+@pytest.mark.property
+def test_sdk_import_geoweave_findings_one_call():
+    from knitweb.sdk import import_geoweave_findings
+
+    web, pot_cid = _molgang_web()
+    priv, _pub = crypto.generate_keypair()
+    result = import_geoweave_findings(
+        [_envelope(), _envelope(label="bicycle")],   # one mapped, one not
+        web=web, importer_priv=priv, beat=7,
+    )
+    assert result["skipped_unmapped"] == ["bicycle"]
+    [(obs_cid, anchor_cid, attestation)] = result["imported"]
+    assert obs_cid in web.nodes and anchor_cid in web.nodes
+    assert web.nodes[obs_cid]["target"] == pot_cid
+    assert attestation.verify(author_field="observer")
+
+    forged = _envelope()
+    forged["sig"] = "00" * 64
+    with pytest.raises(BridgeVerifyError):
+        import_geoweave_findings([forged], web=web, importer_priv=priv, beat=8)
