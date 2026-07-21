@@ -214,10 +214,12 @@
         <code>fabric/observation.py</code> (the float-free record),
         <code>edge/observer.py</code> (the confirmation gate),
         <code>edge/exchange.py</code> (all-or-nothing p2p bundles),
-        <code>solid/pod.py</code> (the injectable pod-vault seam) and
-        <code>solid/webid.py</code> (the WebID link). The pod bridge is a seam, not an
-        HTTP client — a real Solid backend plugs in exactly like the BLE radio and
-        the WebRTC shell do.
+        <code>solid/pod.py</code> (the injectable pod-vault seam),
+        <code>solid/http_pod.py</code> (a stdlib HTTP backend: bearer-token
+        PUT/GET/HEAD against any token-accepting pod) and
+        <code>solid/webid.py</code> (the WebID link). The pod bridge is a seam —
+        the full Solid-OIDC dance lives in the app shell and hands the bridge a
+        token, exactly like the BLE radio and the WebRTC shell.
       </p>
     </section>
   </main>
