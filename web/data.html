@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Data · pulse.github.io — your field data, your vault</title>
+  <meta name="description" content="How Knitweb field observations work with Solid pods, WebID and Vank: originals stay in your personal data vault, the fabric carries only signed digests.">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .flow { display: grid; gap: 6px; margin-top: 18px; }
+    .kv-table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 14px; }
+    .kv-table th, .kv-table td { text-align: left; padding: 10px 12px; border: 1px solid var(--line); vertical-align: top; }
+    .kv-table th { background: var(--panel-2); color: var(--muted); font-weight: 600; }
+    .kv-table code { color: var(--accent); }
+    pre.record {
+      background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+      padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.55;
+      color: var(--ink);
+    }
+    pre.record .k { color: var(--accent-2); }
+    pre.record .c { color: var(--muted); }
+    .band-data { border-top: 1px solid var(--line); padding: 34px clamp(18px, 4vw, 54px); }
+    .band-data h2 { margin-top: 0; }
+    .pill { display: inline-block; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px;
+            color: var(--muted); font-size: 12px; margin-right: 6px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 16px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+    .card h3 { margin: 0 0 6px; font-size: 15px; }
+    .card p { margin: 0; color: var(--muted); font-size: 14px; }
+    .step-list { counter-reset: step; list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 10px; }
+    .step-list li { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+                    padding: 12px 16px 12px 52px; position: relative; font-size: 14px; }
+    .step-list li::before {
+      counter-increment: step; content: counter(step);
+      position: absolute; left: 16px; top: 12px; width: 24px; height: 24px;
+      display: grid; place-items: center; border-radius: 50%;
+      background: var(--panel-2); border: 1px solid var(--accent); color: var(--accent);
+      font-weight: 700; font-size: 12px;
+    }
+    .step-list b { color: var(--ink); }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="index.html">pulse.github.io</a>
+    <nav aria-label="Primary">
+      <a href="data.html" aria-current="page">Data</a>
+      <a href="worlds.html">WNW</a>
+      <a href="docs/worlds-narrow-web.html">Docs</a>
+      <a href="https://github.com/Knitweb/pulse">Source</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Field data · Solid pod · WebID · Vank</p>
+        <h1>Your originals stay in your vault. The fabric carries only proof.</h1>
+        <p class="hero-copy">
+          An AR glass on the Knitweb sees the world and shares what it verified —
+          never what it filmed. Every capture, location trace and scan lives in
+          <em>your</em> Solid pod, behind <em>your</em> access control. What crosses
+          the p2p web is a signed, content-addressed digest: enough for any peer to
+          verify a sighting, never enough to reconstruct your camera roll.
+        </p>
+        <div class="actions">
+          <a class="button primary" href="#how">How a sighting travels</a>
+          <a class="button" href="#where">What lives where</a>
+          <a class="button" href="#webid">WebID</a>
+          <a class="button" href="#vank">Vank</a>
+        </div>
+      </div>
+      <div class="hero-system">
+        <p class="eyebrow">Pod-first, fabric-second</p>
+        <h2>One sighting, two homes</h2>
+        <p>
+          The raw frame goes to the wearer's pod at a path that <em>is</em> its
+          SHA-256 digest. The fabric gets a float-free record carrying that digest,
+          a geohash cell, and the observer's signature — verify-before-trust,
+          end to end.
+        </p>
+        <div class="node core"><code>glass</code> · recognize + confirm</div>
+        <div class="rail" aria-hidden="true"></div>
+        <div class="node"><code>pod</code> · field/captures/&lt;sha256&gt;</div>
+        <div class="rail" aria-hidden="true"></div>
+        <div class="node accent"><code>fabric</code> · field-observation record</div>
+        <div class="rail" aria-hidden="true"></div>
+        <div class="node"><code>peers</code> · attested bundle, geohash-filtered</div>
+      </div>
+    </section>
+
+    <section class="band-data" id="how">
+      <h2>How a sighting travels</h2>
+      <ol class="step-list">
+        <li><b>Recognize.</b> The glass resolves a physical thing to a Web node CID —
+          a QR/ArUco marker (exact), an object-detection label, or a
+          nearest-neighbour embedding. Probabilistic matches carry their confidence
+          and <b>cannot bind durably without an explicit confirmation step</b>.</li>
+        <li><b>Vault the original.</b> The raw capture is stored in the wearer's Solid
+          pod at <code>field/captures/&lt;sha256&gt;</code>. The path is the digest,
+          so the pod reference and the record corroborate each other by construction.</li>
+        <li><b>Weave the proof.</b> A float-free <code>field-observation</code> record —
+          geohash cell, altitude band, label, integer confidence, target CID,
+          observer address, optional <code>pod_ref</code> + <code>capture_digest</code> —
+          is signed and woven, together with a spatial anchor for "what's near me?" queries.</li>
+        <li><b>Share peer-to-peer.</b> Attested observations travel as one canonical
+          bundle over any carrier — BitChat/BLE between buren, WebRTC across the wider
+          web. Verification is all-or-nothing: one forged entry refuses the whole bundle.</li>
+        <li><b>Ask the vault, not the wire.</b> A peer who needs the original resolves
+          <code>observer → WebID → pod</code> and asks. The owner grants or refuses
+          through their pod's own access control. Revoking access is a pod setting —
+          the fabric never held the pixels.</li>
+      </ol>
+    </section>
+
+    <section class="band-data" id="where">
+      <h2>What lives where</h2>
+      <table class="kv-table">
+        <thead>
+          <tr><th>Your Solid pod (private, access-controlled)</th><th>The Knitweb fabric (public, signed)</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>field/captures/&lt;sha256&gt;</code> — camera frames, screenshots, scans</td>
+            <td><code>field-observation</code> — digests, geohash cell, integer confidence, signature</td>
+          </tr>
+          <tr>
+            <td><code>field/observations/&lt;cid&gt;.cbor</code> — your byte-identical audit copy of every record you shared</td>
+            <td><code>spatial-anchor</code> — binds the observation CID to a geohash cell + altitude band</td>
+          </tr>
+          <tr>
+            <td>Location traces, at full precision, on your terms</td>
+            <td>Only the coarse cell a sighting is anchored to — precision is your dial</td>
+          </tr>
+          <tr>
+            <td>Access control: who may read which capture (WAC/ACP)</td>
+            <td><code>webid-link</code> — the signed claim that your pod and your key are the same wearer</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="color:var(--muted); font-size:14px; margin-top:12px;">
+        The same separation the Worlds Narrow Web applies to identity — <em>raw PII is
+        never stored, only content-addressed digests</em> — applied to what a glass sees.
+      </p>
+    </section>
+
+    <section class="band-data" id="webid">
+      <h2>WebID: one wearer, two names, one signature</h2>
+      <p class="lede">
+        A wearer signs observations with a <code>pls1</code> key and owns a pod that
+        answers to a WebID. The <code>webid-link</code> record ties them together —
+        signed by the key itself, so nobody can claim someone else's vault or hang
+        their vault on someone else's key. Re-linking is just a newer beat.
+      </p>
+      <pre class="record"><span class="c">// woven, attested, latest beat wins</span>
+{
+  <span class="k">"kind"</span>:     <span class="k">"webid-link"</span>,
+  <span class="k">"webid"</span>:    <span class="k">"https://alice.pod.example/profile/card#me"</span>,
+  <span class="k">"observer"</span>: <span class="k">"pls1q8f0…"</span>,   <span class="c">// address of the signing key</span>
+  <span class="k">"beat"</span>:     7             <span class="c">// integer Pulse time</span>
+}</pre>
+      <div class="grid-3">
+        <div class="card"><h3>Verify before trust</h3>
+          <p>A link is a plain read; acting on it requires checking its attestation —
+             the same validate-at-read gate every fabric item passes.</p></div>
+        <div class="card"><h3>Pairwise-friendly</h3>
+          <p>Personhood stays digest-only. The link carries an address and a URL —
+             no name, no e-mail, no phone, nothing to leak.</p></div>
+        <div class="card"><h3>Portable</h3>
+          <p>Move pods? Weave a new link at a later beat. Peers resolving
+             <code>observer → WebID</code> follow you automatically.</p></div>
+      </div>
+    </section>
+
+    <section class="band-data" id="vank">
+      <h2>Vank: ask, grant, settle — without custody</h2>
+      <p class="lede">
+        Vank is the exchange end of the WNW spectrum: markets without a central
+        wallet or hosted orderbook as trust root. Applied to field data, it is how
+        access and effort meet: a peer posts a signed intent for what they need —
+        an original capture behind your pod's access control, relay of observation
+        bundles through a neighbourhood, curation of a cell's sightings — and
+        settlement is recorded on the pulse ledger in PLS, the activity unit that
+        meters useful work.
+      </p>
+      <div class="grid-3">
+        <div class="card"><h3>Keys stay client-side</h3>
+          <p>Your narrow-web identity signs intents in your own agent. No operator
+             holds funds, captures, or the right to speak as you.</p></div>
+        <div class="card"><h3>Pod grants, not copies</h3>
+          <p>What changes hands is <em>access</em> — an ACL grant on your pod —
+             plus a digest that proves what was granted. Revocation stays yours.</p></div>
+        <div class="card"><h3>Integer settlement</h3>
+          <p>Floats never reach the canonical value path. Work is metered and
+             settled in integer PLS, like every other useful-work flow on the web.</p></div>
+      </div>
+      <p style="margin-top:16px;">
+        <span class="pill">order intent · signed</span>
+        <span class="pill">escrow term · explicit</span>
+        <span class="pill">settlement · atomic, integer</span>
+        <span class="pill">custody · none</span>
+      </p>
+      <p style="color:var(--muted); font-size:14px;">
+        See the <a href="worlds.html">Worlds Narrow Web</a> page for the full Vank
+        mesh-exchange pattern and the five-seam settlement architecture beneath it.
+      </p>
+    </section>
+
+    <section class="band-data">
+      <h2>Under the hood</h2>
+      <p class="lede">
+        Everything on this page is running code in
+        <a href="https://github.com/Knitweb/pulse">knitweb/pulse</a>, property-tested:
+        <code>fabric/observation.py</code> (the float-free record),
+        <code>edge/observer.py</code> (the confirmation gate),
+        <code>edge/exchange.py</code> (all-or-nothing p2p bundles),
+        <code>solid/pod.py</code> (the injectable pod-vault seam) and
+        <code>solid/webid.py</code> (the WebID link). The pod bridge is a seam, not an
+        HTTP client — a real Solid backend plugs in exactly like the BLE radio and
+        the WebRTC shell do.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <span>Knitweb Pulse / field data &amp; vaults</span>
+    <span><a href="index.html" style="color:var(--muted)">pulse.github.io</a> · <a href="https://github.com/Knitweb/pulse" style="color:var(--muted)">source</a></span>
+  </footer>
+  <script src="nav.js" defer></script>
+</body>
+</html>

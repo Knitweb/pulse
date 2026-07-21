@@ -64,6 +64,7 @@ Requirements and constraints live in [REQUIREMENTS.md](REQUIREMENTS.md).
 - Pluggable recognition resolver: MarkerBackend / SceneSemanticBackend / EmbeddingBackend (IL-118) (#265)
 - Verifiable AR overlays from distilled bundle (IL-119) (#266)
 - Field observations: confidence-gated AR producer side — `FieldObservation` float-free record, `GlassObserver` confirmation gate, capture-digest/pod-ref vault pointers, spatial-index round trip (#342)
+- Solid data-vault seam: injectable `PodBridge` + `PodVault` (content-addressed captures, tamper-evident retrieval, canonical observation archive), signed `webid-link` record binding a pod WebID to a pls1 key, and the `/web/data.html` explainer page
 - MeTTa-inspired atomspace adapter for virtualpc LLM agents (Lens) (#248)
 - Fiber taxonomy for semantic bundle categorisation (#263)
 
