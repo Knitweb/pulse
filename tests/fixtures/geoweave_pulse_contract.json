@@ -1,0 +1,46 @@
+{
+  "body": {
+    "bbox": [
+      100.0,
+      80.0,
+      220.0,
+      190.0
+    ],
+    "confidence": 0.87,
+    "geopose": {
+      "angles": {
+        "pitch": 0.0,
+        "roll": 0.0,
+        "yaw": 90.0
+      },
+      "position": {
+        "h": 6.5,
+        "lat": 52.370216,
+        "lon": 4.895168
+      }
+    },
+    "image_sha256": "9c56cc51b374c3ba189210d5b6d4bf57790d351c96c47c02190ecf1e430635ab",
+    "kind": "geoweave.finding",
+    "label": "leaching_pot",
+    "observed_at": "2026-07-20T12:00:00+00:00",
+    "observer_pose": {
+      "angles": {
+        "pitch": 0.0,
+        "roll": 0.0,
+        "yaw": 90.0
+      },
+      "position": {
+        "h": 1.6,
+        "lat": 52.370216,
+        "lon": 4.895168
+      }
+    },
+    "source": "unity-sentis",
+    "v": 1
+  },
+  "did": "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+  "id": "5d94cc604155bc73087fbd50e80bb8defc0f7d45adcd2f854b4c9b25831b9f5a",
+  "sig": "a75acd59b979c96fbbd761e52dcadd6404aac661891fb7d43a8fd99c05c625e4e10d1c1eddb1e9c286f83d53a8c5be14eeeafcbea0b643048a3d64a1c9327505",
+  "type": "geoweave.finding.announce",
+  "v": 1
+}

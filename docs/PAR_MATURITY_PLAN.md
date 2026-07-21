@@ -51,7 +51,7 @@ peer-to-peer web/fabric; PLS is activity accounting for useful work.
 - [x] Glass-to-glass exchange + transport e2e (#357)
 - [x] Solid pod seam + webid-link + `/web/data` explainer (#364)
 - [x] GeoWeave→pulse bridge + did-link + MOLGANG label maps (this PR)
-- [ ] Mirror contract test in `weave-core` (envelope fixtures generated there,
+- [x] Mirror contract test in `weave-core` (envelope fixtures generated there,
       verified byte-identically by `knitweb.geoweave.bridge`) so neither repo
       can drift silently.
 
