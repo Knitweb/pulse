@@ -6,6 +6,8 @@ touch the low-level Knitweb/Knit machinery directly:
   * ``Wallet``            — a PLS account: keygen, address, balance, pay()
   * ``compile_asset``     — resolve an OriginTrail asset → signed synaptic bytecode
   * ``verify_bundle`` / ``decode_bundle`` — the edge-side verify + read flow
+  * ``import_geoweave_findings`` — verified PAR findings → attested field
+    observations woven into a Web (the dapp-facing GeoWeave crossing)
 
 You pay in **PLS** ("pulses") for activity; a *fiber* carries data, a *pulse* is
 the metered unit you spend. The native base token has no premine — wallets earn
@@ -33,6 +35,7 @@ __all__ = [
     "distill_bundle",
     "verify_bundle",
     "decode_bundle",
+    "import_geoweave_findings",
     "TOKEN",
 ]
 
@@ -153,3 +156,50 @@ def verify_bundle(originator_pub: str, data: bytes, signature_hex: str) -> bool:
 def decode_bundle(data: bytes) -> dict:
     """Decode a synaptic bytecode bundle back into {asset_cid, originator, relations}."""
     return _bc.decode_bundle(data)
+
+
+def import_geoweave_findings(
+    envelopes,
+    *,
+    web: Web,
+    importer_priv: str,
+    beat: int,
+    target_map: dict | None = None,
+    precision: int = 9,
+) -> dict:
+    """Import verified GeoWeave finding envelopes into ``web`` — one call.
+
+    The dapp-facing wrapper over :mod:`knitweb.geoweave.bridge` +
+    :mod:`knitweb.edge.labelmap`: when ``target_map`` is omitted it is built
+    from ``web`` itself (every titled knowledge node — e.g. MOLGANG molecules
+    and apparatus — becomes a target). Per envelope: verify (a failing
+    envelope raises, import refused), convert, weave record + spatial anchor,
+    attest with ``importer_priv``.
+
+    Returns ``{"imported": [(observation_cid, anchor_cid, attestation), ...],
+    "skipped_unmapped": [label, ...]}``. Unmapped labels are *verified but
+    skipped* — nothing to bind is not a forgery, and a forgery is never a
+    skip.
+    """
+    from ..edge.labelmap import target_map_from_web
+    from ..geoweave import bridge as _gw
+
+    targets = target_map_from_web(web) if target_map is None else dict(target_map)
+    imported: list[tuple] = []
+    skipped: list[str] = []
+    for envelope in envelopes:
+        if not _gw.verify_finding(envelope):
+            raise _gw.BridgeVerifyError(
+                "finding envelope failed verification — refusing import"
+            )
+        label = envelope["body"]["label"]
+        if label not in targets:
+            skipped.append(label)
+            continue
+        observation, attestation = _gw.finding_to_observation(
+            envelope, target_map=targets, importer_priv=importer_priv,
+            beat=beat, precision=precision,
+        )
+        observation_cid, anchor_cid = observation.weave(web)
+        imported.append((observation_cid, anchor_cid, attestation))
+    return {"imported": imported, "skipped_unmapped": skipped}
