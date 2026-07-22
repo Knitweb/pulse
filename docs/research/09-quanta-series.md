@@ -402,6 +402,46 @@ of only a local runtime."
 *Knitweb reading:* qua-node **is the spider**. The service registry and job loop are
 the pouw scheduler's job; the status API mirrors the existing node tooling.
 
+### 12.1 Milestone 1 — the runnable 3-node proof
+
+The series' first *milestone with acceptance criteria* survives as a working,
+stdlib-only reference implementation, preserved verbatim at
+[`examples/quanta_milestone1/qua_node.py`](../../examples/quanta_milestone1/):
+*"three Python nodes that can observe the same physical object, give it a shared
+QUA identity, and synchronise its history without a central database"*
+(**3S = Sense → Spatial → Share**). Its design points:
+
+1. **Geospatial-first identity.** Coordinates quantise into ~11 m spatial cells
+   (`52.37401, 4.89903 → "52.3740_4.8990"`), coarse enough that GPS noise keeps
+   one object in one cell; a coarser ~1.1 km "chunk" scopes cache and sync.
+2. **Deterministic QUA id** — the milestone's key move:
+   `qua:<class>:<sha256(class|cell)[:8]>`. Identity is a *function of the world*
+   (what + where), so two independent observers derive the same id with zero
+   coordination — sync merges histories, it never negotiates identity.
+3. **LedgerField as an HMAC-chained log:**
+   `event_hash = SHA256(prev ‖ canonical(body))`, `sig = HMAC(node_key, hash)` —
+   tamper-evident, instantly verifiable, no mining (the §2.1 EHMAC split applied).
+4. **Delta gossip:** `HELLO / HAVE / WANT / EVENT` over asyncio TCP — peers
+   exchange only event hashes they miss; offline peers are simply skipped.
+5. **Consensus score** from average detection confidence *and* the number of
+   distinct observers (three observers = full weight), with a pluggable
+   `SensorInterface` (simulated in the demo; ultralytics YOLO, Snap Lens or
+   Quest 3S in production).
+
+Re-run in this repository, the demo passes all six acceptance criteria: A and B
+derive the same cow id from different GPS fixes; C — which never saw the cow —
+learns of it via P2P alone; every node ends with two independent observers; all
+three ledgers converge to the same event set; every hash chain verifies; and
+consensus rises above single-observation level. Recorded as
+`quanta-m1-3node-sync` in the experiments ledger, per proofs-first.
+
+*Knitweb reading:* the prototype is reference-only (see its README): node-key
+HMACs, float timestamps and sorted-JSON hashing all fall under §15 before any of
+it enters `src/knitweb/`. The two ideas worth porting are the
+**deterministic spatial-cell identity** — the cell key as a *string*, exactly the
+geohash pattern `knitweb.edge.pulse_ar` already uses — and the **HAVE/WANT delta
+gossip** as the minimal L2 sync shape.
+
 ## 13. The browser-native pivot
 
 The closing move discards `qua-node-server` in favour of **qua-browser-runtime**:
