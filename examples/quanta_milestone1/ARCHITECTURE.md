@@ -129,6 +129,21 @@ individually valid, so nothing rejects a forked author-chain. The demo never doe
 this; a hostile node would. This is precisely what the repo's real
 equivocation-report / dispute machinery exists for.
 
+**C4 — Remote chains are not linkage-checked.** `ingest_remote` re-derives each
+event's own hash but never checks that its `prev` already exists locally, nor
+that an author's chain is gap-free — `verify_own_chain` walks only the *local*
+author's chain. Verified by inspection: a peer can serve a mid-chain slice and it
+is stored as if it were complete history. Convergence in the demo hides this
+because gossip eventually delivers every event; under an adversary or lossy
+transport it does not.
+
+**C5 — Moving objects fragment.** Because identity is `f(class, cell)`, an object
+that walks into the next cell acquires a *new* id, while the old id's
+running-average position keeps dragging toward the edge it left. The static-world
+assumption is fine for Milestone 1 but fatal for anything that moves (livestock,
+vehicles); it compounds C1 and needs tracklet re-identification, not just cell
+overlap.
+
 ### Security
 
 **S1 — Unauthenticated events are trusted when the author key is unknown (high
@@ -141,6 +156,15 @@ hand over any key), the HMAC adds no real authentication here. This is the
 central reason the paper's §15 replaces node-key HMACs with per-account
 **secp256k1 signatures over `core.canonical` bytes**: a signature binds the event
 to a public identity a third party can verify without a prior handshake.
+
+**S1b — `HELLO` discloses the signing *secret* itself (high for prod).** Worse
+than S1: the key a node ships in `HELLO` (`"key": self.key.hex()`,
+`qua_node.py:443`) is the very `self.key` (`:370`) the `LedgerField` uses as its
+HMAC secret. Verified: the ledger is `LedgerField(node_id, self.key, …)` and the
+same bytes go out on the wire. So any peer or eavesdropper who sees one `HELLO`
+can forge events *as that node* even for a "known" author — a symmetric MAC whose
+key is broadcast provides no authentication at all. Public-key signatures fix this
+by construction: verification reveals nothing that lets you sign.
 
 **S2 — `_ingest` crashes on a malformed payload (medium — remote DoS).**
 `Observation(**body["payload"])` raises `TypeError` on missing/extra keys
@@ -170,6 +194,18 @@ Persistence appends JSONL and reloads without re-verifying signatures on load;
 a tampered ledger file is trusted. Re-run `verify_own_chain` (or the
 signature-based successor) at load.
 
+**E4 — Server binds `127.0.0.1` hard-coded (`qua_node.py:381`).** The CLI
+advertises a multi-machine mode (`node --peers other-host:9002`), but the
+listener binds localhost only, so it can never accept a remote connection —
+verified by inspection. The docstring oversells the CLI; a one-line bind-address
+parameter fixes it when anyone actually runs Milestone 1 across machines.
+
+**E5 — Blocking inference stalls the event loop.** `try_real_yolo_sensor`'s
+`detect()` runs the YOLO model and camera I/O synchronously, and `_sense_loop`
+awaits it inline — so every frame blocks the gossip loop for its full inference
+time (verified by inspection). Production needs `run_in_executor` or the
+edge-node split from `docs/QUEST3S_AR.md` (thin headset, inference on a spider).
+
 ### Style / minor
 
 - **M1** `chunk_of` and `haversine_m` are defined but unused in the demo path —
@@ -193,15 +229,16 @@ signature-based successor) at load.
 
 ## 5. Reuse checklist (the gate to `src/knitweb/`)
 
-1. Signatures: node-key HMAC → per-account **secp256k1 ECDSA + SHA-256**;
-   drop the shared-key `HELLO` trust (S1, M3).
+1. Signatures: node-key HMAC → per-account **secp256k1 ECDSA + SHA-256**; stop
+   broadcasting the secret in `HELLO` and drop the shared-key trust (S1, S1b, M3).
 2. Encoding: `json.dumps(sort_keys)` → `core.canonical.encode`; hashes →
    `core.canonical.cid` (CIDv1) (C2, general).
 3. Numbers: float position/consensus/timestamps → integer micro-degrees, basis
    points, integer time; recompute from the full set (C2).
 4. Identity: single floored cell → overlapping cells / neighbour merge + a
-   claim-score tiebreak (C1).
-5. Safety: validate `EVENT` payloads; bound line size and HAVE volume; detect
-   equivocation (S2, S3, C3).
-6. Scale: delta reconciliation + persistent connections + backoff; verify on
-   load (E1, E2, E3).
+   claim-score tiebreak, plus tracklet re-id for movers (C1, C5).
+5. Safety: validate `EVENT` payloads; bound line size and HAVE volume; check
+   `prev` linkage on ingest; detect equivocation (S2, S3, C3, C4).
+6. Scale/ops: delta reconciliation + persistent connections + backoff; verify on
+   load; parameterise the bind address; move inference off the event loop
+   (E1, E2, E3, E4, E5).
