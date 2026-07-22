@@ -442,6 +442,12 @@ it enters `src/knitweb/`. The two ideas worth porting are the
 geohash pattern `knitweb.edge.pulse_ar` already uses — and the **HAVE/WANT delta
 gossip** as the minimal L2 sync shape.
 
+A full walkthrough of the implementation plus a code review — cell-boundary
+identity brittleness, the unauthenticated-when-key-unknown ingest path, missing
+equivocation detection, float state, and O(N) full-set gossip, each mapped back
+to §15 — lives beside the code in
+[`examples/quanta_milestone1/ARCHITECTURE.md`](../../examples/quanta_milestone1/ARCHITECTURE.md).
+
 ## 13. The browser-native pivot
 
 The closing move discards `qua-node-server` in favour of **qua-browser-runtime**:

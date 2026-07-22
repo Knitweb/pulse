@@ -20,6 +20,10 @@ What it proves (3S = Sense → Spatial → Share), stdlib-only:
 - **Consensus from independent observers:** confidence grows with distinct
   observers, not repeated frames.
 
+How it works, in full — plus a complete code review (correctness, security,
+scale) and the concrete gate to `src/knitweb/` — is in
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 Run it:
 
 ```bash
