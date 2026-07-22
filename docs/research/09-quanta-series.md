@@ -82,6 +82,58 @@ EHMAC is the placeholder the source itself schedules for replacement ("EHMAC key
 exchange, public/private keys" in v0.2); in Knitweb the envelope is a signed `Knit`
 (secp256k1 + SHA-256) and *verify-before-trust* is already the standing rule.
 
+### 2.1 EHMAC clarified — a context layer, not a new primitive
+
+A later turn of the conversation sharpens the design with an explicit security
+stance: **EHMAC must not be positioned as a replacement for HMAC.** HMAC is a
+well-studied, widely analysed construction; a homegrown variant would be a new
+protocol demanding extensive analysis before any security-critical use. The safe
+split:
+
+```
+                 QUA Protocol
+                      │
+        ┌─────────────┴─────────────┐
+   HMAC-SHA-256                   EHMAC
+ (transport security)     (metadata / provenance)
+        └─────────────┬─────────────┘
+                      │
+                Signed Packet
+```
+
+EHMAC is then *defined as* standard HMAC over a **standardised context envelope**:
+
+```
+EHMAC = HMAC + protocol version + Quanta object id + VANK identity
+       + timestamp + node id + nonce + ledger sequence + capability flags
+```
+
+yielding packets of the shape:
+
+```
+{ "packet": { … },
+  "ehmac": { "algorithm": "EHMAC-v1",
+             "context": { "node": "qua-node-001", "object": "qua:asset:12345",
+                          "ledger": 58231, "timestamp": 1784729200, "nonce": "…" },
+             "signature": "…" } }
+```
+
+Intended uses: P2P message authentication, object-claim validation, GPU job
+assignment, quantum-shot requests, torrent manifests, Quanta object mutations. The
+source's own advice: keep HMAC-SHA-256/512 as the cryptographic core; EHMAC is a
+protocol layer that signs extra, standardised context — never a new hash function —
+so the construction inherits HMAC's proven security and stays externally reviewable.
+
+*Knitweb reading:* the split maps cleanly. A keyed transport MAC over an
+established session is legitimate at L2; but everything on the list that *changes
+state* — claims, mutations, job assignments, manifests — is value-path and therefore
+carries a secp256k1 ECDSA + SHA-256 signature from a per-account key, not a shared
+secret (a MAC cannot prove *who* to a third party; provenance requires signatures).
+The context envelope itself is the good idea to keep: version, object CID, address,
+integer timestamp, nonce and ledger sequence belong in the signed body, encoded via
+`core.canonical.encode` — replay protection via nonce + the hash-critical `network`
+id field a signed `Knit` already carries.
+
 ## 3. qua-vank — identity
 
 Every participant derives a `vank:<base58(sha256(pubkey)[:20])>` id from a local
@@ -427,7 +479,7 @@ contract for any code that grows out of this paper:
 | ad-hoc `json.dumps(sort_keys=True)` canonicalisation | `core.canonical.encode` — float-free deterministic CBOR, the only signing/hashing path |
 | `time.time()` float timestamps in hashed records | integer time only; floats are rejected near hashing/balances |
 | float-capable balances / bare `reward` numbers | integer base units (wei-style) everywhere money moves |
-| shared-secret HMAC (EHMAC) as message auth | per-account keypairs; signatures verified before trust |
+| shared-secret HMAC (EHMAC) as message auth | HMAC-SHA-256 acceptable as transport MAC only (§2.1); all state-changing records signed with per-account secp256k1 keys, verified before trust |
 | "protocoltoken", coin-flavoured framing | activity accounting (PLS); owner-direction guard applies to front-door prose |
 | privileged node roles implied by "server" | no privileged genesis / founder allocation; spiders are peers |
 | unbounded GPU market participation | `pouw/scheduler.py` guardrail + the ≤49% covenant (integer basis points) |
