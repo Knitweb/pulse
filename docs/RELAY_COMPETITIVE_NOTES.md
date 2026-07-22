@@ -77,8 +77,13 @@ when the relay's behavior changes.
 3. ~~**Per-IP token bucket** on send~~ — **DONE (third round)**: coarse
    fixed-window counter file per source IP (`RELAY_SEND_PER_MIN`, default
    120/min, fail-open, fetch unlimited), 429 beyond.
-4. **Relay self-metrics in the feed**: publish `status.php` snapshots into
-   the FinField feed so relay health is itself P2P-distributed.
+4. ~~**Relay self-metrics in the feed**~~ — **DONE (fourth round)**: a signed
+   *ops feed* under `ops/` in `FinField/feed` (own publisher key, minted
+   locally — deliberately not the main data publisher's key), fed by
+   `deploy/5mart/tools/publish_ops_feed.py` on a 30-min cron. Records are
+   integer-only `relay-status` snapshots; head + entries verify with
+   `knitweb.fabric.feed` like any feed, and the 5mart mirror serves it at
+   `/api/feed/ops/…`.
 5. **Feed mirror** — **DONE (third round)**: `api/feed/` mirrors the signed
    FinField feed from GitHub raw with stale-while-error caching, making
    5mart.ml a second HTTPS bootstrap origin (trust-free: heads are signed,

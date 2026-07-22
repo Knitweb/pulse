@@ -16,6 +16,7 @@
  */
 
 const FEED_UPSTREAM   = 'https://raw.githubusercontent.com/FinField/feed/main/feed/';
+const OPS_UPSTREAM    = 'https://raw.githubusercontent.com/FinField/feed/main/ops/';
 const FEED_CACHE      = __DIR__ . '/_cache';
 const FEED_TTL_HEAD   = 60;       // s — head.json/MANIFEST.json move on publish
 const FEED_TTL_STATIC = 600;      // s — record shards append slowly
@@ -33,9 +34,20 @@ if ($path === '' || strlen($path) > 200
   exit;
 }
 
+// ops/<path> maps to the signed ops feed (relay metrics) next to the main
+// data feed; every other path stays on the main feed for full compatibility.
+$upstream = FEED_UPSTREAM;
+if (str_starts_with($path, 'ops/')) {
+  $upstream = OPS_UPSTREAM;
+  $path = substr($path, 4);
+  if ($path === '') { http_response_code(400); header('Content-Type: application/json'); echo json_encode(['ok'=>false,'error'=>'bad path']); exit; }
+}
+
 $ttl = str_ends_with($path, '.json') ? FEED_TTL_HEAD : FEED_TTL_STATIC;
 if (!is_dir(FEED_CACHE)) @mkdir(FEED_CACHE, 0770, true);
-$cache = FEED_CACHE . '/' . sha1($path);
+// cache key on the full upstream URL so feed/head.json and ops/head.json
+// (same $path after the prefix strip) can never collide
+$cache = FEED_CACHE . '/' . sha1($upstream . $path);
 
 $body = null;
 $fresh = is_file($cache) && (time() - filemtime($cache)) < $ttl;
@@ -47,7 +59,7 @@ if ($body === null || $body === false) {
     'timeout' => 8, 'ignore_errors' => true,
     'header' => "User-Agent: knitweb-feed-mirror/1.0\r\n",
   ]]);
-  $raw = @file_get_contents(FEED_UPSTREAM . $path, false, $ctx, 0, FEED_MAX_BYTES + 1);
+  $raw = @file_get_contents($upstream . $path, false, $ctx, 0, FEED_MAX_BYTES + 1);
   $status = 0;
   foreach ($http_response_header ?? [] as $h) {
     if (preg_match('#^HTTP/\S+\s+(\d{3})#', $h, $m)) $status = (int)$m[1];

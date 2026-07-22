@@ -1,0 +1,7 @@
+# The start quest posts to the extensionless paths
+# /api/invite/{create,redeem,status,health} — route those to invite.php,
+# which also reads the action from the request path. Shield the ledger dir.
+RewriteEngine On
+RewriteRule ^_state(/|$) - [F,L]
+RewriteRule ^(create|redeem|status|health)$ invite.php [L,QSA]
+Options -Indexes

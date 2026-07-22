@@ -33,7 +33,8 @@
 </head>
 <body>
 <h1>Knitweb relay — live network</h1>
-<div class="sub">store-and-forward mailboxes · hole-punch rendezvous · feed mirror — <span id="host">…</span></div>
+<div class="sub">store-and-forward mailboxes · hole-punch rendezvous · feed mirror — <span id="host">…</span>
+ · <a href="/pls/" style="color:#58a6ff">PLS faucet</a> · <a href="/par/" style="color:#58a6ff">PAR faucet</a></div>
 
 <div class="cards">
   <div class="card"><b id="c-status">…</b><span>relay</span></div>
@@ -50,6 +51,10 @@
   <tbody id="nodes"><tr><td colspan="7" class="dim">loading…</td></tr></tbody>
 </table>
 </div>
+
+<h1 style="font-size:1rem">Network weather <span class="dim" style="font-weight:normal">— from the signed ops feed</span></h1>
+<div class="sub">every point is a verifiable <code>relay-status</code> record (<a href="../feed/ops/head.json" style="color:#58a6ff">head</a> · <a href="../feed/ops/records-00001.jsonl" style="color:#58a6ff">records</a> · <a href="../feed/explorer.html" style="color:#58a6ff">verify in your tab</a>), published each 30 min</div>
+<div class="cards" id="weather"><div class="card"><b class="dim">…</b><span>loading ops feed</span></div></div>
 
 <footer id="limits"></footer>
 
@@ -109,6 +114,42 @@ async function refresh() {
 }
 refresh();
 setInterval(refresh, 10000);
+
+/* Network weather: sparklines over the signed ops feed (same-origin mirror). */
+function spark(values, width, height) {
+  if (values.length < 2) return '<svg width="' + width + '" height="' + height + '"></svg>';
+  const lo = Math.min(...values), hi = Math.max(...values), span = (hi - lo) || 1;
+  const pts = values.map((v, i) =>
+    (i * (width - 2) / (values.length - 1) + 1).toFixed(1) + "," +
+    (height - 2 - (v - lo) * (height - 4) / span).toFixed(1)).join(" ");
+  return '<svg width="' + width + '" height="' + height + '" aria-hidden="true">' +
+    '<polyline points="' + pts + '" fill="none" stroke="#58a6ff" stroke-width="1.5"/></svg>';
+}
+async function weather() {
+  let recs = [];
+  try {
+    const raw = await (await fetch("../feed/ops/records-00001.jsonl", {cache: "no-store"})).text();
+    recs = raw.split("\n").filter(l => l.trim()).map(l => JSON.parse(l))
+              .filter(r => r.kind === "relay-status").slice(-96);   // last ~2 days
+  } catch (e) { /* mirror hiccup: keep the previous render */ }
+  if (!recs.length) return;
+  const series = [
+    ["nodes", recs.map(r => r.node_count ?? 0)],
+    ["mailboxes", recs.map(r => r.mailboxes ?? 0)],
+    ["frames", recs.map(r => r.frames_total ?? 0)],
+    ["queued B", recs.map(r => r.queue_bytes ?? 0)],
+    ["ok", recs.map(r => r.ok ?? 0)],
+  ];
+  const last = recs[recs.length - 1];
+  document.getElementById("weather").innerHTML = series.map(([label, vals]) =>
+    '<div class="card">' + spark(vals, 130, 34) +
+    "<b>" + vals[vals.length - 1] + "</b><span>" + esc(label) + "</span></div>"
+  ).join("") +
+  '<div class="card"><b class="dim">' + fmtAge(Math.max(0, Math.floor(Date.now() / 1000) - (last.t || 0))) +
+  "</b><span>last signed record</span></div>";
+}
+weather();
+setInterval(weather, 60000);
 </script>
 </body>
 </html>

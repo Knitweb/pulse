@@ -15,6 +15,8 @@ connected whole with the shared hop-menu (no dead ends).
 | `/quantum/` | `Knitweb/k.nitweb.art` → `quantum/` (QuantumV) |
 | `/chemfield/` | `Knitweb/chemfield` → `web/` (interactive 3D steel-slag logo) |
 | `/dapp/` | `Knitweb/molgang` → `serverless/web/` (pure-P2P MOLGANG — the engine in every tab, no backend) |
+| `/start/` | this bundle's `start/` (guided first-five-minutes quest: node → claim → verify) |
+| `/api/invite/` | this bundle's `api/invite/` (invite links + recruit counters, zero-PII) |
 | `/api/relay/` | this bundle's `api/relay/` (Knitweb p2p mailbox relay + hole-punch rendezvous) |
 | `/api/feed/` | this bundle's `api/feed/` (FinField feed mirror — second HTTPS bootstrap origin) |
 | `/nav.js`   | the shared cross-host menu |
@@ -78,6 +80,18 @@ GitHub raw with an on-disk cache (60 s for the moving heads, 600 s for
 shards) and stale-while-error, so nodes have a bootstrap origin that
 survives a GitHub outage. Trust-free: heads are signed and records
 content-addressed — a mirror cannot forge the feed.
+
+**Feed explorer** (`/api/feed/explorer.html`): "don't trust, verify" as a
+click — downloads every record and recomputes the Merkle root *in the tab*
+(a byte-exact JS twin of `knitweb.core.canonical` + the Merkle fold),
+compares it to the published head, and shows the records with a filter.
+The full 93k-record main feed verifies in ~9 s in-browser.
+
+The mirror also serves the signed **ops feed** (`/api/feed/ops/…` →
+`FinField/feed` `ops/`): integer-only `relay-status` snapshots published
+every 30 min by `tools/publish_ops_feed.py` under its own publisher key,
+so relay health is itself P2P-distributed and verifiable with
+`knitweb.fabric.feed`.
 
 Two ways to serve it, depending on the host:
 
