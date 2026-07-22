@@ -66,6 +66,7 @@ Requirements and constraints live in [REQUIREMENTS.md](REQUIREMENTS.md).
 - Field observations: confidence-gated AR producer side — `FieldObservation` float-free record, `GlassObserver` confirmation gate, capture-digest/pod-ref vault pointers, spatial-index round trip (#342)
 - GeoWeave (PAR) bridge: verify Ed25519 `did:key` finding envelopes from weave-core and re-express them as attested field observations; `did-link` identity record; MOLGANG label maps from woven knowledge (`edge/labelmap.py`); PAR maturity plan (`docs/PAR_MATURITY_PLAN.md`)
 - Solid data-vault seam: injectable `PodBridge` + `PodVault` (content-addressed captures, tamper-evident retrieval, canonical observation archive), signed `webid-link` record binding a pod WebID to a pls1 key, and the `/web/data.html` explainer page
+- Field-observation exchange: glass-to-glass bundles over any carrier — all-or-nothing attestation verify, spatial acceptance on the record's own geohash, dedupe, weave-through to SpatialIndex (#357)
 - MeTTa-inspired atomspace adapter for virtualpc LLM agents (Lens) (#248)
 - Fiber taxonomy for semantic bundle categorisation (#263)
 
